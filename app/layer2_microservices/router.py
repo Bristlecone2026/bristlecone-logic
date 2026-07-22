@@ -162,3 +162,57 @@ async def execute_task(request: TaskExecutionRequest) -> TaskExecutionResponse:
         execution_time_ms=round(execution_time, 2),
         result=result,
     )
+import time
+from fastapi import APIRouter, HTTPException, status
+from app.layer2_microservices.schemas import (
+    TaskExecutionRequest,
+    TaskExecutionResponse,
+    TaskType,
+)
+from app.layer4_crypto.signer import PayloadSigner
+
+router = APIRouter(tags=["Layer 2 Microservices"])
+
+@router.post(
+    "/tasks/execute",
+    response_model=TaskExecutionResponse,
+    summary="Execute Layer 2 Microservice Routine",
+)
+async def execute_task(request: TaskExecutionRequest) -> TaskExecutionResponse:
+    start_time = time.perf_counter()
+
+    # Layer 4 Cryptographic Verification Gate
+    payload_to_verify = {
+        "task_id": request.task_id,
+        "task_type": request.task_type.value,
+        "priority": request.priority.value,
+        "payload": request.payload,
+    }
+    
+    if not PayloadSigner.verify_signature(payload_to_verify, request.signature):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Layer 4 Signature Verification Failed: Tampered or unsigned payload detected",
+        )
+
+    # Deterministic microservice execution dispatch
+    if request.task_type == TaskType.DATA_CLEANING:
+        result = {"processed_records": len(request.payload.get("records", [])), "status": "cleaned"}
+    elif request.task_type == TaskType.SYSTEM_INSPECTION:
+        result = {"cpu_check": "ok", "memory_check": "ok", "target": request.payload.get("target", "localhost")}
+    elif request.task_type == TaskType.TRANSFORMATION:
+        result = {"transformed_keys": list(request.payload.keys())}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported task type: {request.task_type}",
+        )
+
+    execution_time = (time.perf_counter() - start_time) * 1000
+
+    return TaskExecutionResponse(
+        task_id=request.task_id,
+        status="completed",
+        execution_time_ms=round(execution_time, 2),
+        result=result,
+    )
