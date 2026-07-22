@@ -4,27 +4,37 @@ from app.layer3_orchestration.state import AgentState, GraphStatus
 
 
 class WorkerNode:
-    """Drafts microservice task payloads based on the user goal or feedback."""
+    """Drafts microservice task payloads and reacts to Invigilator rejection feedback."""
 
     @staticmethod
     async def process(state: AgentState) -> AgentState:
         state.status = GraphStatus.WORKING
         state.iteration_count += 1
 
-        # Example deterministic task generation based on goal keywords
         goal = state.user_goal.lower()
-        
+
+        # Handle feedback from Invigilator rejection
+        if state.rejection_reason and "Unauthorized target" in state.rejection_reason:
+            target = "localhost"  # Fallback to permitted target upon rejection
+        else:
+            # Extract target parameter from goal if present
+            words = goal.split()
+            target = "localhost"
+            if "inspect" in words:
+                idx = words.index("inspect")
+                if idx + 1 < len(words) and words[idx + 1] not in ("system", "health"):
+                    target = words[idx + 1]
+
         if "clean" in goal or "records" in goal:
             task_type = TaskType.DATA_CLEANING
             payload = {"records": [1, 2, 3, 4, 5]}
         elif "inspect" in goal or "health" in goal:
             task_type = TaskType.SYSTEM_INSPECTION
-            payload = {"target": "localhost"}
+            payload = {"target": target}
         else:
             task_type = TaskType.TRANSFORMATION
             payload = {"source": "raw_feed", "key": "value"}
 
-        # Build draft
         state.task_draft = {
             "task_id": f"task-{uuid.uuid4().hex[:8]}",
             "task_type": task_type.value,
@@ -32,10 +42,6 @@ class WorkerNode:
             "payload": payload,
             "timeout_seconds": 30,
         }
-
-        # If previous iteration was rejected, attempt correction logic
-        if state.rejection_reason:
-            state.task_draft["payload"]["corrected"] = True
 
         return state
 
