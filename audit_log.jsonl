@@ -1,0 +1,7 @@
+{"details": {"user_goal": "Inspect localhost"}, "event_type": "SESSION_STARTED", "timestamp": "2026-07-22T01:58:08.890964+00:00"}
+{"details": {"iteration": 1, "task_draft": {"payload": {"target": "localhost"}, "priority": "high", "task_id": "task-c0ecbce1", "task_type": "system_inspection", "timeout_seconds": 30}}, "event_type": "WORKER_DRAFT_CREATED", "timestamp": "2026-07-22T01:58:08.891988+00:00"}
+{"details": {"approved": true, "iteration": 1, "reason": null}, "event_type": "INVIGILATOR_CHECKED", "timestamp": "2026-07-22T01:58:08.892436+00:00"}
+{"details": {"signature": "191d783f400a874f290a5466eb75dbb05cded9fca7344dbfcd22df12047275e6", "task_id": "task-c0ecbce1"}, "event_type": "PAYLOAD_SIGNED", "timestamp": "2026-07-22T01:58:08.892864+00:00"}
+{"details": {"result": {"error": null, "execution_time_ms": 0.15, "result": {"cpu_check": "ok", "memory_check": "ok", "target": "localhost"}, "status": "completed", "task_id": "task-c0ecbce1"}, "task_id": "task-c0ecbce1"}, "event_type": "TASK_EXECUTED", "timestamp": "2026-07-22T01:58:08.893916+00:00"}
+{"details": {"feedback": "Task executed and verified successfully.", "status": "completed"}, "event_type": "EVALUATOR_VERIFIED", "timestamp": "2026-07-22T01:58:08.894254+00:00"}
+{"details": {"final_status": "completed", "total_iterations": 1}, "event_type": "SESSION_FINISHED", "timestamp": "2026-07-22T01:58:08.894576+00:00"}
