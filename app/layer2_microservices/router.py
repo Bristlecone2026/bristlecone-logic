@@ -32,6 +32,48 @@ async def execute_task(request: AgentTaskRequest) -> AgentTaskResponse:
         status = AgentStatus.COMPLETED
         error_msg = None
 
+    elif request.action == "cambium_data":
+        operation = request.parameters.get("operation", "summarize_keys")
+        payload = request.parameters.get("payload", {})
+        try:
+            if operation == "transform_uppercase" and isinstance(payload, str):
+                processed = payload.upper()
+            elif operation == "summarize_keys" and isinstance(payload, dict):
+                processed = {"key_count": len(payload.keys()), "keys": list(payload.keys())}
+            else:
+                processed = {"processed_payload": payload, "operation": operation}
+
+            result_data = {
+                "handler": "cambium_data_processor",
+                "operation": operation,
+                "output": processed
+            }
+            status = AgentStatus.COMPLETED
+            error_msg = None
+        except Exception as e:
+            result_data = None
+            status = AgentStatus.FAILED
+            error_msg = f"Cambium data error: {str(e)}"
+
+    elif request.action == "seedling_batch":
+        items = request.parameters.get("items", [])
+        if not isinstance(items, list):
+            result_data = None
+            status = AgentStatus.FAILED
+            error_msg = "Parameter 'items' must be a list"
+        else:
+            processed_items = [
+                {"sub_id": idx + 1, "status": "completed", "data": item}
+                for idx, item in enumerate(items)
+            ]
+            result_data = {
+                "handler": "seedling_batch_processor",
+                "total_processed": len(processed_items),
+                "items": processed_items
+            }
+            status = AgentStatus.COMPLETED
+            error_msg = None
+
     elif request.action == "mcp_tool":
         tool_name = request.parameters.get("tool_name")
         tool_args = request.parameters.get("args", {})
@@ -80,4 +122,43 @@ async def execute_task(request: AgentTaskRequest) -> AgentTaskResponse:
         result=result_data,
         error=error_msg,
         execution_time_ms=round(execution_ms, 2)
+    )
+import time
+from fastapi import APIRouter, HTTPException, status
+from app.layer2_microservices.schemas import (
+    TaskExecutionRequest,
+    TaskExecutionResponse,
+    TaskType,
+)
+
+router = APIRouter(tags=["Layer 2 Microservices"])
+
+@router.post(
+    "/tasks/execute",
+    response_model=TaskExecutionResponse,
+    summary="Execute Layer 2 Microservice Routine",
+)
+async def execute_task(request: TaskExecutionRequest) -> TaskExecutionResponse:
+    start_time = time.perf_counter()
+
+    # Deterministic microservice execution dispatch
+    if request.task_type == TaskType.DATA_CLEANING:
+        result = {"processed_records": len(request.payload.get("records", [])), "status": "cleaned"}
+    elif request.task_type == TaskType.SYSTEM_INSPECTION:
+        result = {"cpu_check": "ok", "memory_check": "ok", "target": request.payload.get("target", "localhost")}
+    elif request.task_type == TaskType.TRANSFORMATION:
+        result = {"transformed_keys": list(request.payload.keys())}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported task type: {request.task_type}",
+        )
+
+    execution_time = (time.perf_counter() - start_time) * 1000
+
+    return TaskExecutionResponse(
+        task_id=request.task_id,
+        status="completed",
+        execution_time_ms=round(execution_time, 2),
+        result=result,
     )
