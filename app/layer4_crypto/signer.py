@@ -1,10 +1,11 @@
+import os
 import hashlib
 import hmac
 import json
 from typing import Any, Dict
 
 # Secrets should be loaded from environment variables in production
-SIGNING_SECRET = b"bristlecone_layer4_signing_secret_key"
+SIGNING_SECRET = os.getenv("LAYER4_SIGNING_SECRET", "bristlecone_layer4_signing_secret_key").encode("utf-8")
 
 
 class PayloadSigner:

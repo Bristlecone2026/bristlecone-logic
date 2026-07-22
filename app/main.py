@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Depends
 from app.layer1_schemas.base import SystemHealthResponse
 from app.layer2_microservices.router import router as task_router
