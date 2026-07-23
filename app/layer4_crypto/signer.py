@@ -1,14 +1,15 @@
 import hmac
 import hashlib
-import config
+from typing import Any
+from app.config import settings
 
-SIGNING_SECRET = config.HMAC_SECRET_KEY.encode("utf-8")
+SIGNING_SECRET = getattr(settings, "HMAC_SECRET", "bristlecone-zero-trust-secret-key").encode("utf-8")
 
-def sign_payload(payload: str) -> str:
-    """Generates an HMAC-SHA256 signature for a given payload string."""
+def sign_payload(payload: Any) -> str:
+    if not isinstance(payload, str):
+        payload = str(payload)
     return hmac.new(SIGNING_SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
-def verify_signature(payload: str, signature: str) -> bool:
-    """Verifies an HMAC-SHA256 signature against a payload string."""
-    expected_signature = sign_payload(payload)
-    return hmac.compare_digest(expected_signature, signature)
+def verify_signature(payload: Any, signature: str) -> bool:
+    expected = sign_payload(payload)
+    return hmac.compare_digest(expected, signature)
