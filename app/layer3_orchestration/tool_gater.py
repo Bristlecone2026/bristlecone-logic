@@ -7,7 +7,10 @@ class ToolGater:
     def __init__(self):
         self.allowed_tools = ALLOWED_TOOLS
 
+    def is_tool_whitelisted(self, tool_name: str) -> bool:
+        return tool_name in self.allowed_tools
+
     def validate_tool_call(self, tool_name: str, payload: Any, signature: str) -> bool:
-        if tool_name not in self.allowed_tools:
+        if not self.is_tool_whitelisted(tool_name):
             return False
         return verify_signature(payload, signature)
