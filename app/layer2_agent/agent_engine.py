@@ -19,9 +19,24 @@ class AgentEngine:
 
     def execute_task(self, user_request: str) -> Dict[str, Any]:
         res = self.orchestrator.process_agent_request(user_request=user_request)
-        res["agent"] = self.agent_name
-        res["processed_prompt_length"] = len(user_request)
-        return res
+        status = res.get("status")
+        tool_executed = res.get("tool_name") if status == "SUCCESS" else None
+
+        return {
+            "status": status,
+            "agent": self.agent_name,
+            "tool_executed": tool_executed,
+            "reason": res.get("reason"),
+            "current_state": {
+                "task_id": res.get("task_id"),
+                "signature": res.get("signature"),
+                "status": status
+            },
+            "processed_prompt_length": len(user_request),
+            "task_id": res.get("task_id"),
+            "tool_name": res.get("tool_name"),
+            "signature": res.get("signature")
+        }
 
     def process_request(self, user_request: str) -> Dict[str, Any]:
         return self.execute_task(user_request)

@@ -1,80 +1,67 @@
+import uuid
 from typing import Dict, Any, Optional
-from app.layer3_orchestration.state_graph import StateGraph
-from app.layer4_crypto.signer import sign_payload
+from app.layer3_orchestration.tool_gater import ToolGater
+from app.layer3_orchestration.state_store import SQLiteStateStore
+from app.layer4_crypto.signer import sign_payload, verify_signature
 
 class Layer3Orchestrator:
-    def __init__(self, llm_worker=None):
-        self.state_graph = StateGraph()
+    def __init__(self, llm_worker=None, db_path: str = "erasmus_state.db"):
         self.llm_worker = llm_worker
+        self.tool_gater = ToolGater()
+        self.state_store = SQLiteStateStore(db_path=db_path)
 
-    def _default_parse_intent(self, text: str) -> Dict[str, Any]:
-        text_lower = (text or "").lower()
-        if "wipe" in text_lower or "delete" in text_lower or "destroy" in text_lower:
-            return {"tool_name": "unauthorized_intent", "params": {"target": "all"}}
-        elif "status" in text_lower or "check" in text_lower or "ledger" in text_lower:
-            return {"tool_name": "query_ledger", "params": {"query_text": text}}
-        elif "read" in text_lower or "state" in text_lower:
-            return {"tool_name": "read_state", "params": {}}
-        elif "sign" in text_lower or "transaction" in text_lower:
-            return {"tool_name": "sign_transaction", "params": {}}
-        elif "verify" in text_lower or "payload" in text_lower:
-            return {"tool_name": "verify_payload", "params": {}}
+    def process_agent_request(self, user_request: str) -> Dict[str, Any]:
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        self.state_store.create_task(task_id, user_request)
+
+        # 1. Intent Parsing (Layer 2)
+        if self.llm_worker:
+            intent = self.llm_worker.parse_intent(user_request)
         else:
-            return {"tool_name": "query_ledger", "params": {"query_text": text}}
+            intent = {"tool_name": "query_ledger", "params": {"query_text": user_request}}
 
-    def process_agent_request(
-        self, 
-        user_request: Optional[str] = None, 
-        tool_name: Optional[str] = None, 
-        params: Optional[Dict[str, Any]] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        if not tool_name:
-            req_text = user_request or kwargs.get("request", "") or kwargs.get("user_request", "")
-            if self.llm_worker and hasattr(self.llm_worker, "parse_intent"):
-                parsed = self.llm_worker.parse_intent(req_text)
-                tool_name = parsed.get("tool_name")
-                params = parsed.get("params", {})
-            elif self.llm_worker and hasattr(self.llm_worker, "parse_request"):
-                parsed = self.llm_worker.parse_request(req_text)
-                tool_name = parsed.get("tool_name")
-                params = parsed.get("params", {})
-            else:
-                parsed = self._default_parse_intent(req_text)
-                tool_name = parsed.get("tool_name")
-                params = parsed.get("params", {})
-
-        if params is None:
-            params = {}
-
-        payload_str = f"{tool_name}:{params}"
-        signature = sign_payload(payload_str)
-
-        try:
-            self.state_graph.execute_tool_transition(
-                tool_name=tool_name,
-                params=params,
-                signature=signature,
-                action_data=payload_str
-            )
-            updated_state = self.state_graph.current_state
+        tool_name = intent.get("tool_name", "query_ledger")
+        
+        # 2. Security Evaluation (Layer 3 Tool Gater)
+        is_allowed = self.tool_gater.is_tool_whitelisted(tool_name)
+        if not is_allowed:
+            gate_reason = f"Tool '{tool_name}' is not in the approved whitelist (failed authorization)."
+            self.state_store.update_task(task_id, status="REJECTED", tool_name=tool_name, reason=gate_reason)
             return {
-                "status": "SUCCESS",
-                "tool_executed": tool_name,
-                "params": params,
-                "hmac_signature": signature,
-                "reason": None,
-                "updated_state": updated_state,
-                "current_state": updated_state
-            }
-        except ValueError as e:
-            return {
+                "task_id": task_id,
                 "status": "REJECTED",
-                "tool_executed": None,
-                "params": params,
-                "hmac_signature": signature,
-                "reason": f"failed authorization: {e}",
-                "error": str(e),
-                "updated_state": self.state_graph.current_state,
-                "current_state": self.state_graph.current_state
+                "reason": gate_reason,
+                "tool_name": tool_name
             }
+
+        # 3. Signature Integrity Check (Layer 4)
+        payload = f"op:{tool_name}"
+        signature = sign_payload(payload)
+        is_valid = verify_signature(payload, signature)
+
+        if not is_valid:
+            reason = "Cryptographic signature validation failed"
+            self.state_store.update_task(task_id, status="FAILED", tool_name=tool_name, reason=reason)
+            return {
+                "task_id": task_id,
+                "status": "FAILED",
+                "reason": reason,
+                "tool_name": tool_name
+            }
+
+        # 4. Successful Execution State
+        self.state_store.update_task(
+            task_id, 
+            status="SUCCESS", 
+            tool_name=tool_name, 
+            reason=None, 
+            payload_hash=signature[:12]
+        )
+
+        return {
+            "task_id": task_id,
+            "status": "SUCCESS",
+            "reason": None,
+            "tool_name": tool_name,
+            "signature": signature
+        }
