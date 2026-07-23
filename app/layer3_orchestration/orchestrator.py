@@ -1,3 +1,4 @@
+from app.layer3_orchestration.gemini_worker import GeminiWorker
 import uuid
 from typing import Dict, Any, Optional
 from app.layer3_orchestration.tool_gater import ToolGater
@@ -6,7 +7,7 @@ from app.layer4_crypto.signer import sign_payload, verify_signature
 
 class Layer3Orchestrator:
     def __init__(self, llm_worker=None, db_path: str = "erasmus_state.db"):
-        self.llm_worker = llm_worker
+        self.llm_worker = llm_worker if llm_worker is not None else GeminiWorker()
         self.tool_gater = ToolGater()
         self.state_store = SQLiteStateStore(db_path=db_path)
 
