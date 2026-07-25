@@ -84,7 +84,7 @@ def test_layer2_worker_execution():
     )
     assert response.status_code == 200
     data = response.json()["execution"]
-    assert data["pipeline_stage"] == "Layer3_ToolGater_Passed"
+    assert data["pipeline_stage"] == "Layer4_Telemetry_Passed"
     assert data["worker_result"]["worker_status"] == "COMPLETED"
     assert "format" in data["worker_result"]["execution_metadata"]["context_keys"]
 
@@ -101,7 +101,7 @@ def test_layer3_authorized_tool_execution():
     )
     assert response.status_code == 200
     data = response.json()["execution"]
-    assert data["pipeline_stage"] == "Layer3_ToolGater_Passed"
+    assert data["pipeline_stage"] == "Layer4_Telemetry_Passed"
     assert data["tool_execution"]["status"] == "EXECUTED"
     assert data["tool_execution"]["tool_name"] == "web_scraper"
 
@@ -118,3 +118,17 @@ def test_layer3_unauthorized_tool_blocked():
     )
     assert response.status_code == 400
     assert "unauthorized for category" in response.json()["detail"]
+
+
+def test_layer4_audit_telemetry_envelope():
+    """Layer 4 must generate a cryptographically verified telemetry record."""
+    response = client.post(
+        "/v1/execute-task",
+        json={"intent": "Convert this payload to JSON schema"},
+        headers={"X-PAYMENT-PROOF": "TEST_PROOF_VALID"}
+    )
+    assert response.status_code == 200
+    telemetry = response.json()["execution"]["telemetry"]
+    assert telemetry["verified"] is True
+    assert telemetry["audit_id"].startswith("aud_")
+    assert len(telemetry["telemetry_hash"]) == 64
