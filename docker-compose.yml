@@ -1,0 +1,15 @@
+services:
+  bristlecone-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bristlecone_m2m_engine
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      # Real keys will be injected here or via environment file
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-mock_key}
+      - BRISTLECONE_WALLET_ADDRESS=${BRISTLECONE_WALLET_ADDRESS:-0x0000000000000000000000000000000000000000}
+    restart: unless-stopped

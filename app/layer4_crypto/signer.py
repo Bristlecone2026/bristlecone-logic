@@ -13,3 +13,12 @@ def sign_payload(payload: Any) -> str:
 def verify_signature(payload: Any, signature: str) -> bool:
     expected = sign_payload(payload)
     return hmac.compare_digest(expected, signature)
+
+class PayloadSigner:
+    @staticmethod
+    def sign_payload(payload: Any) -> str:
+        return sign_payload(payload)
+
+    @staticmethod
+    def verify_signature(payload: Any, signature: str) -> bool:
+        return verify_signature(payload, signature)
