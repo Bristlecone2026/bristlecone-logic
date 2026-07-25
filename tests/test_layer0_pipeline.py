@@ -132,3 +132,18 @@ def test_layer4_audit_telemetry_envelope():
     assert telemetry["verified"] is True
     assert telemetry["audit_id"].startswith("aud_")
     assert len(telemetry["telemetry_hash"]) == 64
+
+
+def test_layer5_external_interface_protocol():
+    """Layer 5 must enforce the BRISTLECONE-M2M-v1 response protocol."""
+    response = client.post(
+        "/v1/execute-task",
+        json={"intent": "Convert this payload to JSON schema"},
+        headers={"X-PAYMENT-PROOF": "TEST_PROOF_VALID"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["protocol"] == "BRISTLECONE-M2M-v1"
+    assert "timestamp" in data
+    assert data["status"] == "SUCCESS"
+    assert "execution" in data

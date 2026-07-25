@@ -1,6 +1,6 @@
 """
-Bristlecone Logic - Main FastAPI Engine
-Exposes the M2M microservice pipeline wrapped with Layer 0 x402 payment gating.
+Bristlecone Logic - Main API Entrypoint
+FastAPI application hosting the zero-trust M2M engine.
 """
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 
 from src.layer0.payment import verify_x402_payment
 from src.orchestrator import Layer3Orchestrator
+from src.layer5.interface import ExternalInterface
 
 app = FastAPI(
     title="Bristlecone Logic M2M Engine",
@@ -16,7 +17,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Initialize Orchestrator
 orchestrator = Layer3Orchestrator()
 
 
@@ -35,24 +35,20 @@ async def execute_task(
     payload: M2MTaskRequest,
     payment_info: Dict[str, Any] = Depends(verify_x402_payment)
 ):
-    """
-    Main M2M Execution Endpoint:
-    1. Layer 0: Payment verified via Depends(verify_x402_payment).
-    2. Layers 1-5: Intent processed through Zero-Trust Orchestrator.
-    3. Returns: Execution payload + payment receipt + cryptographic signature.
-    """
     try:
-        execution_result = await orchestrator.process_intent(
+        pipeline_result = await orchestrator.process_intent(
             user_intent=payload.intent,
             context=payload.context_data
         )
+        pipeline_result["payment"] = payment_info
 
-        return {
-            "status": "SUCCESS",
-            "payment": payment_info,
-            "execution": execution_result
-        }
+        return ExternalInterface.format_m2m_response(pipeline_result)
 
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
