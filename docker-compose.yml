@@ -23,6 +23,8 @@ services:
     restart: always
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres_password@db:5432/bristlecone_db
+    volumes:
+      - .:/app
     depends_on:
       db:
         condition: service_healthy
@@ -36,6 +38,8 @@ services:
     command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
     environment:
       - API_URL=http://api:8000
+    volumes:
+      - .:/app
     depends_on:
       - api
     networks:
