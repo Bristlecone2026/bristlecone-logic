@@ -9,7 +9,20 @@ services:
     environment:
       - ENVIRONMENT=production
       - LOG_LEVEL=info
-      # Real keys will be injected here or via environment file
       - GEMINI_API_KEY=${GEMINI_API_KEY:-mock_key}
       - BRISTLECONE_WALLET_ADDRESS=${BRISTLECONE_WALLET_ADDRESS:-0x0000000000000000000000000000000000000000}
+    restart: unless-stopped
+
+  bristlecone-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bristlecone_dashboard
+    command: python3 -m streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://bristlecone-engine:8000
+    depends_on:
+      - bristlecone-engine
     restart: unless-stopped

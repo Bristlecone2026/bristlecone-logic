@@ -1,10 +1,11 @@
 import streamlit as st
 import requests
+import os
 
 st.set_page_config(page_title="Bristlecone Logic Core", layout="wide")
 st.title("🌲 Bristlecone Logic Core Interface")
 
-API_URL = "http://localhost:8000"
+API_URL = "http://bristlecone-engine:8000"
 
 # Sidebar Health Check
 st.sidebar.header("System Status")
