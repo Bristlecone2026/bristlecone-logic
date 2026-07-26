@@ -1,11 +1,13 @@
 services:
   bristlecone-engine:
+    container_name: bristlecone_m2m_engine
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bristlecone_m2m_engine
     ports:
       - "8000:8000"
+    volumes:
+      - .:/app
     environment:
       - ENVIRONMENT=production
       - LOG_LEVEL=info
