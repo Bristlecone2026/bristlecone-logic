@@ -26,8 +26,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
     networks:
       - bristlecone_net
 
@@ -40,8 +38,23 @@ services:
       - API_URL=http://api:8000
     depends_on:
       - api
+    networks:
+      - bristlecone_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: bristlecone_proxy
+    restart: always
     ports:
-      - "8501:8501"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_etc:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - api
+      - ui
     networks:
       - bristlecone_net
 
@@ -51,3 +64,5 @@ networks:
 
 volumes:
   postgres_data:
+  certbot_etc:
+  certbot_www:
