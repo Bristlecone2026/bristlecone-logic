@@ -1,30 +1,40 @@
+
 services:
-  bristlecone-engine:
-    container_name: bristlecone_m2m_engine
-    build:
-      context: .
-      dockerfile: Dockerfile
+  db:
+    image: postgres:16-alpine
+    container_name: bristlecone_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
+      POSTGRES_DB: bristlecone_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bristlecone_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bristlecone_net
+
+  api:
+    build: .
+    container_name: bristlecone_api
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres_password@db:5432/bristlecone_db
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
-    environment:
-      - ENVIRONMENT=production
-      - LOG_LEVEL=info
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-mock_key}
-      - BRISTLECONE_WALLET_ADDRESS=${BRISTLECONE_WALLET_ADDRESS:-0x0000000000000000000000000000000000000000}
-    restart: unless-stopped
+    networks:
+      - bristlecone_net
 
-  bristlecone-dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: bristlecone_dashboard
-    command: python3 -m streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0
-    ports:
-      - "8501:8501"
-    environment:
-      - API_URL=http://bristlecone-engine:8000
-    depends_on:
-      - bristlecone-engine
-    restart: unless-stopped
+networks:
+  bristlecone_net:
+    driver: bridge
+
+volumes:
+  postgres_data:

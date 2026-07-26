@@ -1,57 +1,35 @@
-from dotenv import load_dotenv
-from fastapi import FastAPI, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi import FastAPI, Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import List
 
-from app.layer1_schemas.base import SystemHealthResponse
-from app.layer2_microservices.router import router as task_router
-from app.layer3_orchestration.graph import AgentGraphOrchestrator
-from app.layer3_orchestration.state import AgentState
-from app.core.security import verify_api_key
-from app.core.rate_limiter import limiter
-from app.core.payload_limiter import LimitPayloadSizeMiddleware
+from app.database import get_db, engine, Base
+from app.models import SystemLog
+from app.schemas import SystemLogCreate, SystemLogResponse
 
-load_dotenv()
-
-app = FastAPI(title="Bristlecone Logic Core Engine", version="0.1.0")
-
-# Security Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"]
-)
-app.add_middleware(LimitPayloadSizeMiddleware, max_upload_size=1_048_576)
-
-# Router Mounting
-app.include_router(
-    task_router,
-    prefix="/api/v1",
-    dependencies=[Depends(verify_api_key), Depends(limiter)]
+app = FastAPI(
+    title="Bristlecone Logic API",
+    version="1.0.0"
 )
 
-@app.get("/health", response_model=SystemHealthResponse)
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+@app.get("/health", status_code=status.HTTP_200_OK)
 async def health_check():
-    return SystemHealthResponse()
+    return {"status": "online", "service": "Bristlecone API"}
 
-@app.get("/")
-async def root():
-    return {
-        "system": "Bristlecone Logic API",
-        "status": "online",
-        "endpoints": ["/health", "/docs"]
-    }
+@app.post("/logs", response_model=SystemLogResponse, status_code=status.HTTP_201_CREATED)
+async def create_log(payload: SystemLogCreate, db: AsyncSession = Depends(get_db)):
+    new_log = SystemLog(event_type=payload.event_type, message=payload.message)
+    db.add(new_log)
+    await db.flush()
+    await db.refresh(new_log)
+    return new_log
 
-@app.get("/api/v1/protected-task", dependencies=[Depends(verify_api_key), Depends(limiter)])
-async def protected_task():
-    return {"status": "authenticated", "access": "granted"}
-
-@app.post("/api/v1/agent/run", response_model=AgentState, dependencies=[Depends(verify_api_key), Depends(limiter)])
-async def run_agent_workflow(goal: str):
-    return await AgentGraphOrchestrator.run(user_goal=goal)
+@app.get("/logs", response_model=List[SystemLogResponse])
+async def list_logs(limit: int = 50, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(SystemLog).order_by(SystemLog.id.desc()).limit(limit))
+    return result.scalars().all()
