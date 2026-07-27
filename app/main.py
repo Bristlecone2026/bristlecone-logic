@@ -18,15 +18,9 @@ app = FastAPI(
 
 app.include_router(api_router)
 
-app.include_router(
-    auth_router,
-    prefix="/api/v1",
-    tags=["auth"]
-)
-
-@app.get("/health", response_model=SystemHealthResponse)
+@app.get("/health")
 async def health_check():
-    return SystemHealthResponse()
+    return {"status": "ok"}
 
 @app.get("/")
 async def root():
@@ -36,10 +30,3 @@ async def root():
         "endpoints": ["/health", "/docs"]
     }
 
-@app.get("/api/v1/protected-task", dependencies=[Depends(verify_api_key), Depends(limiter)])
-async def protected_task():
-    return {"status": "authenticated", "access": "granted"}
-
-@app.post("/api/v1/agent/run", response_model=AgentState, dependencies=[Depends(verify_api_key), Depends(limiter)])
-async def run_agent_workflow(goal: str):
-    return await AgentGraphOrchestrator.run(user_goal=goal)
