@@ -20,8 +20,20 @@ async def run_agent_workflow(
         except ImportError:
             from src.orchestrator import Layer3Orchestrator
 
+        # Enrich context with authenticated tenant metadata
+        context = request.context or {}
+        context["user_id"] = current_user.get("id")
+        context["username"] = current_user.get("username")
+        context["organization_id"] = current_user.get("organization_id", "default_org")
+
         orchestrator = Layer3Orchestrator()
-        result = await orchestrator.process_intent(request.intent, request.context or {})
+        result = await orchestrator.process_intent(request.intent, context)
+        
+        # Attach tenant verification to API response
+        result["tenant_context"] = {
+            "user_id": context["user_id"],
+            "organization_id": context["organization_id"]
+        }
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
