@@ -5,10 +5,22 @@ st.set_page_config(page_title="Bristlecone Logic", page_icon="🌲", layout="wid
 
 client = APIClient()
 
+# Initialize session state keys
 if "token" not in st.session_state:
     st.session_state["token"] = None
 if "user" not in st.session_state:
     st.session_state["user"] = None
+
+# Restore session from URL query parameters if memory state drops
+if not st.session_state["token"]:
+    token_param = st.query_params.get("token")
+    if token_param:
+        user_info = client.get_me(token_param)
+        if user_info and "error" not in user_info:
+            st.session_state["token"] = token_param
+            st.session_state["user"] = user_info
+        else:
+            st.query_params.clear()
 
 def login_form():
     st.title("🌲 Bristlecone Logic")
@@ -31,6 +43,7 @@ def login_form():
                 
                 st.session_state["token"] = token
                 st.session_state["user"] = user_info
+                st.query_params["token"] = token
                 st.success("Authenticated successfully!")
                 st.rerun()
             else:
@@ -48,6 +61,7 @@ def main_dashboard():
     if st.sidebar.button("Log Out"):
         st.session_state["token"] = None
         st.session_state["user"] = None
+        st.query_params.clear()
         st.rerun()
 
     if view == "Dashboard":
