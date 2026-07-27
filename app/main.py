@@ -1,40 +1,47 @@
-import logging
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
+import logging
 
-from app.database import engine, Base
-from app.api.v1.router import api_router
+from app.api.v1.api import api_router
+from app.core.config import settings
 
-# Configure structured logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bristlecone.api")
+
+# Initialize Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Starting Bristlecone Logic API...")
     yield
+    logger.info("Shutting down Bristlecone Logic API...")
 
 app = FastAPI(
-    title="Bristlecone Logic API",
-    version="1.0.0",
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url=None
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan
 )
 
-# Restrict CORS to internal proxy and UI network
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Internal Nginx handles external SSL/boundary
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+# Attach Limiter to app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Security Header Middleware
+# CORS configuration
+if settings.BACKEND_CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[str(origin).strip("/") for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Security Headers Middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -43,32 +50,16 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
 
-# Standardized Global Error Envelope
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "error": {
-                "code": "INTERNAL_SERVER_ERROR",
-                "message": "An unexpected error occurred. Please contact system support.",
-                "path": request.url.path
-            }
-        }
-    )
+# Global Error Shielding
+@app.middleware("http")
+async def global_exception_handler(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        logger.error(f"Unhandled Server Error: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal Server Error", "message": "An unexpected error occurred."}
+        )
 
-app.include_router(api_router, prefix="/api/v1")
-
-@app.get("/health", tags=["system"])
-async def health_check():
-    return {"status": "ok", "service": "bristlecone-api"}
-
-@app.get("/", tags=["system"])
-async def root():
-    return {
-        "system": "Bristlecone Logic API",
-        "status": "online",
-        "version": "1.0.0",
-        "endpoints": ["/health", "/docs"]
-    }
+app.include_router(api_router, prefix=settings.API_V1_STR)

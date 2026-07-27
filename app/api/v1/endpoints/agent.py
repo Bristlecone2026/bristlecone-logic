@@ -1,8 +1,10 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.api.deps import get_current_user, get_db
 from app.models.domain import SystemLog
@@ -10,13 +12,18 @@ from app.models.domain import SystemLog
 logger = logging.getLogger("bristlecone.agent")
 router = APIRouter(prefix="/agent", tags=["agent"])
 
+# Define limiter for the router
+limiter = Limiter(key_func=get_remote_address)
+
 class AgentRunRequest(BaseModel):
     intent: str
     context: Optional[Dict[str, Any]] = None
 
 @router.post("/run")
+@limiter.limit("10/minute")
 async def run_agent_workflow(
-    request: AgentRunRequest,
+    request: Request,
+    run_request: AgentRunRequest,
     current_user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -40,17 +47,17 @@ async def run_agent_workflow(
         except ImportError:
             from src.orchestrator import Layer3Orchestrator
 
-        context = request.context or {}
+        context = run_request.context or {}
         context.update(tenant_ctx)
 
         orchestrator = Layer3Orchestrator()
-        result = await orchestrator.process_intent(request.intent, context)
+        result = await orchestrator.process_intent(run_request.intent, context)
         
         result["tenant_context"] = tenant_ctx
 
         # Record successful execution telemetry to PostgreSQL
         log_payload = {
-            "intent": request.intent,
+            "intent": run_request.intent,
             "tenant_context": tenant_ctx,
             "category": result.get("category"),
             "status": result.get("status"),
@@ -74,7 +81,7 @@ async def run_agent_workflow(
 
         # Record failed execution attempt to PostgreSQL for auditing
         log_payload = {
-            "intent": request.intent,
+            "intent": run_request.intent,
             "tenant_context": tenant_ctx,
             "error": error_msg
         }
