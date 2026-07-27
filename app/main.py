@@ -16,7 +16,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-       HEAD
 app.include_router(api_router)
 
 app.include_router(
