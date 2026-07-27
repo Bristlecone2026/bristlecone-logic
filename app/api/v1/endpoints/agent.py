@@ -20,24 +20,25 @@ async def run_agent_workflow(
         except ImportError:
             from src.orchestrator import Layer3Orchestrator
 
-        # Extract attributes safely from the User ORM/Pydantic instance
         user_id = getattr(current_user, "id", None)
-        username = getattr(current_user, "username", "unknown")
-        org_id = getattr(current_user, "organization_id", "default_org")
+        email = getattr(current_user, "email", "unknown")
+        full_name = getattr(current_user, "full_name", None)
+        raw_org_id = getattr(current_user, "organization_id", None)
+        org_id = raw_org_id if raw_org_id is not None else "org_default"
 
-        # Enrich context with authenticated tenant metadata
         context = request.context or {}
         context["user_id"] = user_id
-        context["username"] = username
+        context["email"] = email
+        context["full_name"] = full_name
         context["organization_id"] = org_id
 
         orchestrator = Layer3Orchestrator()
         result = await orchestrator.process_intent(request.intent, context)
         
-        # Attach tenant verification to API response
         result["tenant_context"] = {
             "user_id": user_id,
-            "username": username,
+            "email": email,
+            "full_name": full_name,
             "organization_id": org_id
         }
         return result
