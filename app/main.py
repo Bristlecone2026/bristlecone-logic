@@ -8,7 +8,6 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 
-# Import router from app.api.v1.router
 try:
     from app.api.v1.router import api_router
 except ImportError:
@@ -42,7 +41,6 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Security Headers Middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
