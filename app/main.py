@@ -1,12 +1,11 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-
-from app.core.config import settings
 
 try:
     from app.api.v1.router import api_router
@@ -23,19 +22,24 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down Bristlecone Logic API...")
 
+API_V1_STR = "/api/v1"
+PROJECT_NAME = "Bristlecone Logic API"
+
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    title=PROJECT_NAME,
+    openapi_url=f"{API_V1_STR}/openapi.json",
     lifespan=lifespan
 )
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-if settings.BACKEND_CORS_ORIGINS:
+cors_origins = os.getenv("BACKEND_CORS_ORIGINS", "")
+if cors_origins:
+    origins = [origin.strip("/") for origin in cors_origins.split(",") if origin.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin).strip("/") for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -49,4 +53,4 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
 
-app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(api_router, prefix=API_V1_STR)
