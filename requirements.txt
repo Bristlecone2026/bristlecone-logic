@@ -5,3 +5,4 @@ asyncpg
 pyjwt
 bcrypt
 python-multipart
+streamlit
