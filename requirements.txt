@@ -1,10 +1,7 @@
-fastapi>=0.110.0
-uvicorn[standard]>=0.28.0
-sqlalchemy>=2.0.28
-asyncpg>=0.29.0
-greenlet>=3.0.3
-pydantic>=2.6.4
-pydantic-settings>=2.2.1
-streamlit>=1.32.0
-requests>=2.31.0
-alembic>=1.13.0
+fastapi
+uvicorn
+sqlalchemy
+asyncpg
+pyjwt
+bcrypt
+python-multipart
