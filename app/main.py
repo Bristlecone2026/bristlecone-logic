@@ -43,4 +43,3 @@ async def protected_task():
 @app.post("/api/v1/agent/run", response_model=AgentState, dependencies=[Depends(verify_api_key), Depends(limiter)])
 async def run_agent_workflow(goal: str):
     return await AgentGraphOrchestrator.run(user_goal=goal)
-        a61cf4b (fix: standardize api router prefixes to /api/v1)
