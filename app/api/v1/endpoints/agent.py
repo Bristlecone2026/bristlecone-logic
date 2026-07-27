@@ -12,7 +12,7 @@ class AgentRunRequest(BaseModel):
 @router.post("/run")
 async def run_agent_workflow(
     request: AgentRunRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Any = Depends(get_current_user)
 ):
     try:
         try:
@@ -20,19 +20,25 @@ async def run_agent_workflow(
         except ImportError:
             from src.orchestrator import Layer3Orchestrator
 
+        # Extract attributes safely from the User ORM/Pydantic instance
+        user_id = getattr(current_user, "id", None)
+        username = getattr(current_user, "username", "unknown")
+        org_id = getattr(current_user, "organization_id", "default_org")
+
         # Enrich context with authenticated tenant metadata
         context = request.context or {}
-        context["user_id"] = current_user.get("id")
-        context["username"] = current_user.get("username")
-        context["organization_id"] = current_user.get("organization_id", "default_org")
+        context["user_id"] = user_id
+        context["username"] = username
+        context["organization_id"] = org_id
 
         orchestrator = Layer3Orchestrator()
         result = await orchestrator.process_intent(request.intent, context)
         
         # Attach tenant verification to API response
         result["tenant_context"] = {
-            "user_id": context["user_id"],
-            "organization_id": context["organization_id"]
+            "user_id": user_id,
+            "username": username,
+            "organization_id": org_id
         }
         return result
     except Exception as e:
