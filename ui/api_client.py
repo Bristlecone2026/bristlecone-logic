@@ -31,3 +31,16 @@ class APIClient:
             return None
         except requests.RequestException:
             return None
+
+    def run_agent(self, token: str, intent: str, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Trigger an agent orchestration workflow."""
+        url = f"{self.base_url}/api/v1/agent/run"
+        headers = {"Authorization": f"Bearer {token}"}
+        payload = {"intent": intent, "context": context or {}}
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            if response.status_code == 200:
+                return response.json()
+            return {"error": f"HTTP {response.status_code}: {response.text}"}
+        except requests.RequestException as e:
+            return {"error": str(e)}

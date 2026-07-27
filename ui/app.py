@@ -5,7 +5,6 @@ st.set_page_config(page_title="Bristlecone Logic", page_icon="🌲", layout="wid
 
 client = APIClient()
 
-# Initialize session state for auth token
 if "token" not in st.session_state:
     st.session_state["token"] = None
 if "user" not in st.session_state:
@@ -38,28 +37,55 @@ def login_form():
                 st.error("Invalid credentials or server unreachable.")
 
 def main_dashboard():
-    # Sidebar Navigation & User Info
     user = st.session_state.get("user") or {}
     username = user.get("username", "User")
     
     st.sidebar.title("Navigation")
     st.sidebar.write(f"Logged in as: **{username}**")
     
+    view = st.sidebar.radio("Module", ["Dashboard", "Agent Orchestrator"])
+
     if st.sidebar.button("Log Out"):
         st.session_state["token"] = None
         st.session_state["user"] = None
         st.rerun()
 
-    # Main Workspace
-    st.title("System Dashboard")
-    st.success("API Integration Active & Authenticated")
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("API Status", "Connected")
-    col2.metric("Active Session", "Valid")
-    col3.metric("Role", user.get("role", "Standard"))
+    if view == "Dashboard":
+        st.title("System Dashboard")
+        st.success("API Integration Active & Authenticated")
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("API Status", "Connected")
+        col2.metric("Active Session", "Valid")
+        col3.metric("Role", user.get("role", "Standard"))
 
-# Render layout based on auth state
+    elif view == "Agent Orchestrator":
+        st.title("⚡ Agent Workflow Orchestrator")
+        st.markdown("Trigger multi-layer execution across taxonomy, model inference, tool gating, and telemetry.")
+
+        intent_input = st.text_area("User Intent / Prompt", placeholder="e.g., Analyze recent system metrics and generate a summary report.")
+        
+        col_run, _ = st.columns([1, 4])
+        if col_run.button("Run Agent Workflow", type="primary"):
+            if not intent_input.strip():
+                st.warning("Please enter an intent before running.")
+            else:
+                with st.spinner("Executing multi-layer pipeline..."):
+                    res = client.run_agent(st.session_state["token"], intent_input)
+                    
+                    if res and "error" in res:
+                        st.error(f"Execution Error: {res['error']}")
+                    elif res:
+                        st.success("Workflow Execution Complete")
+                        
+                        col_cat, col_status, col_stage = st.columns(3)
+                        col_cat.metric("Taxonomy Category", res.get("category", "N/A"))
+                        col_status.metric("Pipeline Status", res.get("status", "N/A"))
+                        col_stage.metric("Stage Reached", res.get("pipeline_stage", "N/A"))
+
+                        st.subheader("Pipeline Response Details")
+                        st.json(res)
+
 if not st.session_state["token"]:
     login_form()
 else:
