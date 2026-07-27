@@ -1,18 +1,21 @@
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from contextlib import asynccontextmanager
-import logging
 
-from app.api.v1.api import api_router
 from app.core.config import settings
+
+# Import router from app.api.v1.router
+try:
+    from app.api.v1.router import api_router
+except ImportError:
+    from app.api.v1.router import router as api_router
 
 logger = logging.getLogger("bristlecone.api")
 
-# Initialize Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
@@ -27,11 +30,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Attach Limiter to app
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS configuration
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
@@ -49,17 +50,5 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
-
-# Global Error Shielding
-@app.middleware("http")
-async def global_exception_handler(request: Request, call_next):
-    try:
-        return await call_next(request)
-    except Exception as e:
-        logger.error(f"Unhandled Server Error: {str(e)}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Internal Server Error", "message": "An unexpected error occurred."}
-        )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
