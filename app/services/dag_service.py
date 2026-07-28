@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from app.models.dag import CommitNode, CommitEdge, DendroRole
+from app.models.dag import CommitNode, DendroRole
 
 def calculate_state_hash(
     project_id: int,
@@ -28,8 +28,8 @@ def create_commit_node(
     payload: Dict[str, Any],
     parent_ids: List[UUID]
 ) -> CommitNode:
-    """Creates a commit node and links parent edge relationships."""
-    
+    """Creates a commit node and links parent edge relationships via ORM."""
+    parents = []
     if parent_ids:
         parents = db.query(CommitNode).filter(
             CommitNode.id.in_(parent_ids),
@@ -48,15 +48,10 @@ def create_commit_node(
         project_id=project_id,
         agent_role=agent_role,
         state_hash=state_hash,
-        payload=payload
+        payload=payload,
+        parents=parents
     )
     db.add(node)
-    db.flush()
-
-    for pid in parent_ids:
-        edge = CommitEdge(parent_id=pid, child_id=node.id)
-        db.add(edge)
-
     db.commit()
     db.refresh(node)
     return node
