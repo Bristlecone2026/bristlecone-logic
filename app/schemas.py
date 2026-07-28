@@ -1,57 +1,68 @@
-from datetime import datetime
-from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, ConfigDict
+from typing import Optional, Any, Dict
+from datetime import datetime
 
-# System Log
-class SystemLogCreate(BaseModel):
+# System Logs
+class SystemLogBase(BaseModel):
     level: str
     message: str
     payload: Optional[Dict[str, Any]] = None
 
-class SystemLogResponse(SystemLogCreate):
+class SystemLogCreate(SystemLogBase):
+    pass
+
+class SystemLogResponse(SystemLogBase):
     id: int
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-# Auth & User
-class UserCreate(BaseModel):
+# Organizations
+class OrganizationBase(BaseModel):
+    name: str
+    slug: Optional[str] = None
+
+class OrganizationCreate(OrganizationBase):
+    pass
+
+class OrganizationResponse(OrganizationBase):
+    id: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+# Projects
+class ProjectBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class ProjectCreate(ProjectBase):
+    organization_id: Optional[int] = None
+
+class ProjectResponse(ProjectBase):
+    id: int
+    organization_id: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+# Users
+class UserBase(BaseModel):
     email: str
+    full_name: Optional[str] = None
+
+class UserCreate(UserBase):
     password: str
-    full_name: Optional[str] = None
     organization_id: Optional[int] = None
 
-class UserResponse(BaseModel):
+class UserResponse(UserBase):
     id: int
-    email: str
-    full_name: Optional[str] = None
     organization_id: Optional[int] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+# Auth Tokens
 class Token(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str
 
 class TokenData(BaseModel):
     email: Optional[str] = None
-
-# Organization
-class OrganizationCreate(BaseModel):
-    name: str
-    slug: str
-
-class OrganizationResponse(OrganizationCreate):
-    id: int
-    created_at: datetime
-    model_config = ConfigDict(from_attributes=True)
-
-# Project
-class ProjectCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    organization_id: int
-
-class ProjectResponse(ProjectCreate):
-    id: int
-    created_at: datetime
-    model_config = ConfigDict(from_attributes=True)
+    org_id: Optional[int] = None
