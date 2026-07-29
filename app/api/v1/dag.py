@@ -14,6 +14,7 @@ from app.schemas.dag import (
 )
 from app.services.dag_service import create_commit_node
 from app.workers.handlers import process_seedling_commit
+from app.auth.dependencies import get_current_org_id
 
 router = APIRouter(prefix="/dag", tags=["dag"])
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/dag", tags=["dag"])
 async def create_commit(
     commit_in: CommitNodeCreate,
     background_tasks: BackgroundTasks,
-    organization_id: int = 1,
+    organization_id: int = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
     node = await create_commit_node(
@@ -34,7 +35,6 @@ async def create_commit(
         parent_ids=commit_in.parent_ids
     )
     
-    # Layer 2 Execution Trigger: Enqueue background worker for SEEDLING nodes
     if node.agent_role == DendroRole.SEEDLING:
         background_tasks.add_task(
             process_seedling_commit,
@@ -59,7 +59,7 @@ async def create_commit(
 @router.get("/projects/{project_id}", response_model=ProjectDAGResponse)
 async def get_project_dag(
     project_id: int,
-    organization_id: int = 1,
+    organization_id: int = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
     stmt = (
