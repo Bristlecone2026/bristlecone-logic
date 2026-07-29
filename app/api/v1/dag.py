@@ -1,6 +1,8 @@
 from typing import List
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.dag import CommitNode
@@ -16,12 +18,12 @@ router = APIRouter(prefix="/dag", tags=["dag"])
 
 
 @router.post("/commits", response_model=CommitNodeResponse, status_code=status.HTTP_201_CREATED)
-def create_commit(
+async def create_commit(
     commit_in: CommitNodeCreate,
     organization_id: int = 1,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    return create_commit_node(
+    node = await create_commit_node(
         db=db,
         organization_id=organization_id,
         project_id=commit_in.project_id,
@@ -29,26 +31,57 @@ def create_commit(
         payload=commit_in.payload,
         parent_ids=commit_in.parent_ids
     )
+    
+    return CommitNodeResponse(
+        id=node.id,
+        organization_id=node.organization_id,
+        project_id=node.project_id,
+        agent_role=node.agent_role,
+        state_hash=node.state_hash,
+        payload=node.payload,
+        created_at=node.created_at,
+        parent_ids=commit_in.parent_ids
+    )
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDAGResponse)
-def get_project_dag(
+async def get_project_dag(
     project_id: int,
     organization_id: int = 1,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    nodes = db.query(CommitNode).filter(
-        CommitNode.project_id == project_id,
-        CommitNode.organization_id == organization_id
-    ).all()
+    stmt = (
+        select(CommitNode)
+        .where(
+            CommitNode.project_id == project_id,
+            CommitNode.organization_id == organization_id
+        )
+        .options(selectinload(CommitNode.parents))
+    )
+    result = await db.execute(stmt)
+    nodes = list(result.scalars().all())
 
+    node_responses = []
     edges = []
     for node in nodes:
+        parent_ids = [p.id for p in node.parents]
+        node_responses.append(
+            CommitNodeResponse(
+                id=node.id,
+                organization_id=node.organization_id,
+                project_id=node.project_id,
+                agent_role=node.agent_role,
+                state_hash=node.state_hash,
+                payload=node.payload,
+                created_at=node.created_at,
+                parent_ids=parent_ids
+            )
+        )
         for parent in node.parents:
             edges.append(CommitEdgeResponse(parent_id=parent.id, child_id=node.id))
 
     return ProjectDAGResponse(
         project_id=project_id,
-        nodes=nodes,
+        nodes=node_responses,
         edges=edges
     )

@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from app.models.dag import DendroRole
 
 class CommitNodeCreate(BaseModel):
@@ -11,6 +11,8 @@ class CommitNodeCreate(BaseModel):
     parent_ids: List[UUID] = Field(default_factory=list)
 
 class CommitNodeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     organization_id: int
     project_id: int
@@ -20,15 +22,11 @@ class CommitNodeResponse(BaseModel):
     created_at: datetime
     parent_ids: List[UUID] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
-
 class CommitEdgeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     parent_id: UUID
     child_id: UUID
-
-    class Config:
-        from_attributes = True
 
 class ProjectDAGResponse(BaseModel):
     project_id: int
