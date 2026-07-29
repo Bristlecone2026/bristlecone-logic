@@ -1,11 +1,11 @@
 from typing import List
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.dag import CommitNode
+from app.models.dag import CommitNode, DendroRole
 from app.schemas.dag import (
     CommitNodeCreate,
     CommitNodeResponse,
@@ -13,6 +13,7 @@ from app.schemas.dag import (
     CommitEdgeResponse,
 )
 from app.services.dag_service import create_commit_node
+from app.workers.handlers import process_seedling_commit
 
 router = APIRouter(prefix="/dag", tags=["dag"])
 
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/dag", tags=["dag"])
 @router.post("/commits", response_model=CommitNodeResponse, status_code=status.HTTP_201_CREATED)
 async def create_commit(
     commit_in: CommitNodeCreate,
+    background_tasks: BackgroundTasks,
     organization_id: int = 1,
     db: AsyncSession = Depends(get_db)
 ):
@@ -32,6 +34,16 @@ async def create_commit(
         parent_ids=commit_in.parent_ids
     )
     
+    # Layer 2 Execution Trigger: Enqueue background worker for SEEDLING nodes
+    if node.agent_role == DendroRole.SEEDLING:
+        background_tasks.add_task(
+            process_seedling_commit,
+            commit_id=node.id,
+            organization_id=node.organization_id,
+            project_id=node.project_id,
+            payload=node.payload
+        )
+
     return CommitNodeResponse(
         id=node.id,
         organization_id=node.organization_id,
