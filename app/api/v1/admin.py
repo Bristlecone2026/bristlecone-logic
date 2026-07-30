@@ -1,109 +1,137 @@
+import hashlib
 import secrets
-from typing import List, Dict, Any
-from datetime import datetime
+from typing import Optional, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import func
-from pydantic import BaseModel
+from sqlalchemy import text
 
 from app.database import get_db
-from app.models.auth import ApiKey, UsageLog
 
-router = APIRouter(prefix="/api/v1/admin", tags=["Admin & Usage"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
-class KeyCreateRequest(BaseModel):
-    organization_id: int
+# --- Schemas ---
+
+class CreateKeyRequest(BaseModel):
+    name: str = Field(..., example="Production Integration Key")
+
+class KeyCreatedResponse(BaseModel):
+    id: str
+    tenant_id: str
     name: str
-
-class KeyCreateResponse(BaseModel):
-    id: UUID
-    name: str
-    organization_id: int
-    api_key: str
-    created_at: datetime
-
-class KeyInfo(BaseModel):
-    id: UUID
-    name: str
-    organization_id: int
-    prefix: str
+    key_prefix: str
+    api_key: str  # Plaintext key returned ONCE
     is_active: bool
-    created_at: datetime
+    created_at: str
 
-class UsageSummary(BaseModel):
-    organization_id: int
-    total_requests: int
-    endpoints: Dict[str, int]
+class KeyListItem(BaseModel):
+    id: str
+    tenant_id: str
+    name: str
+    key_prefix: str
+    is_active: bool
+    last_used_at: Optional[str] = None
+    created_at: str
 
-@router.post("/keys", response_model=KeyCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_api_key(body: KeyCreateRequest, db: AsyncSession = Depends(get_db)):
-    raw_key = f"bc_live_{secrets.token_hex(16)}"
-    
-    new_key = ApiKey(
-        organization_id=body.organization_id,
-        name=body.name,
-        key=raw_key,
-        is_active=True
+# --- Endpoints ---
+
+@router.post("/tenants/{tenant_id}/keys", response_model=KeyCreatedResponse, status_code=status.HTTP_201_CREATED)
+async def create_tenant_api_key(
+    tenant_id: UUID,
+    payload: CreateKeyRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    # Verify tenant exists
+    tenant_check = await db.execute(
+        text("SELECT id FROM tenants WHERE id = :tid"),
+        {"tid": str(tenant_id)}
     )
-    db.add(new_key)
+    if not tenant_check.scalars().first():
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Generate secure bcl_ key and SHA-256 hash
+    raw_secret = secrets.token_hex(16)
+    raw_key = f"bcl_{raw_secret}"
+    key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    key_prefix = raw_key[:12]
+
+    query = text("""
+        INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, is_active)
+        VALUES (:tenant_id, :name, :key_hash, :key_prefix, true)
+        RETURNING id, tenant_id, name, key_prefix, is_active, created_at
+    """)
+
+    result = await db.execute(query, {
+        "tenant_id": str(tenant_id),
+        "name": payload.name,
+        "key_hash": key_hash,
+        "key_prefix": key_prefix
+    })
+    row = result.mappings().first()
     await db.commit()
-    await db.refresh(new_key)
-    
-    return KeyCreateResponse(
-        id=new_key.id,
-        name=new_key.name,
-        organization_id=new_key.organization_id,
+
+    return KeyCreatedResponse(
+        id=str(row["id"]),
+        tenant_id=str(row["tenant_id"]),
+        name=row["name"],
+        key_prefix=row["key_prefix"],
         api_key=raw_key,
-        created_at=new_key.created_at
+        is_active=row["is_active"],
+        created_at=row["created_at"].isoformat()
     )
 
-@router.get("/keys", response_model=List[KeyInfo])
-async def list_api_keys(organization_id: int, db: AsyncSession = Depends(get_db)):
-    stmt = select(ApiKey).where(ApiKey.organization_id == organization_id, ApiKey.is_active == True)
-    result = await db.execute(stmt)
-    keys = result.scalars().all()
-    
+
+@router.get("/tenants/{tenant_id}/keys", response_model=List[KeyListItem])
+async def list_tenant_api_keys(
+    tenant_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    query = text("""
+        SELECT id, tenant_id, name, key_prefix, is_active, last_used_at, created_at
+        FROM api_keys
+        WHERE tenant_id = :tenant_id
+        ORDER BY created_at DESC
+    """)
+    result = await db.execute(query, {"tenant_id": str(tenant_id)})
+    rows = result.mappings().all()
+
     return [
-        KeyInfo(
-            id=k.id,
-            name=k.name or "Unnamed Key",
-            organization_id=k.organization_id,
-            prefix=k.key[:12] if k.key else "bc_live_****",
-            is_active=k.is_active,
-            created_at=k.created_at
-        ) for k in keys
+        KeyListItem(
+            id=str(row["id"]),
+            tenant_id=str(row["tenant_id"]),
+            name=row["name"],
+            key_prefix=row["key_prefix"],
+            is_active=row["is_active"],
+            last_used_at=row["last_used_at"].isoformat() if row["last_used_at"] else None,
+            created_at=row["created_at"].isoformat()
+        )
+        for row in rows
     ]
 
-@router.delete("/keys/{key_id}")
-async def revoke_api_key(key_id: UUID, db: AsyncSession = Depends(get_db)):
-    stmt = select(ApiKey).where(ApiKey.id == key_id)
-    result = await db.execute(stmt)
-    key_obj = result.scalar_one_or_none()
-    if not key_obj:
-        raise HTTPException(status_code=404, detail="API key not found")
-    
-    key_obj.is_active = False
-    await db.commit()
-    return {"status": "success", "message": f"API key {key_id} revoked successfully"}
 
-@router.get("/usage", response_model=UsageSummary)
-async def get_usage_metrics(organization_id: int, db: AsyncSession = Depends(get_db)):
-    count_stmt = select(func.count(UsageLog.id)).where(UsageLog.organization_id == organization_id)
-    total_res = await db.execute(count_stmt)
-    total_requests = total_res.scalar() or 0
+@router.delete("/keys/{key_id}")
+async def revoke_api_key(
+    key_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    query = text("""
+        UPDATE api_keys 
+        SET is_active = false 
+        WHERE id = :key_id
+        RETURNING id, name, key_prefix, is_active
+    """)
+    result = await db.execute(query, {"key_id": str(key_id)})
+    row = result.mappings().first()
     
-    ep_stmt = (
-        select(UsageLog.endpoint, func.count(UsageLog.id))
-        .where(UsageLog.organization_id == organization_id)
-        .group_by(UsageLog.endpoint)
-    )
-    ep_res = await db.execute(ep_stmt)
-    endpoints = {row[0]: row[1] for row in ep_res.all()}
-    
-    return UsageSummary(
-        organization_id=organization_id,
-        total_requests=total_requests,
-        endpoints=endpoints
-    )
+    if not row:
+        raise HTTPException(status_code=404, detail="API Key not found")
+
+    await db.commit()
+    return {
+        "status": "revoked",
+        "key_id": str(row["id"]),
+        "name": row["name"],
+        "key_prefix": row["key_prefix"],
+        "is_active": row["is_active"]
+    }
