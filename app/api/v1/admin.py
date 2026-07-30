@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+from decimal import Decimal
 from typing import Optional, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,6 +35,16 @@ class KeyListItem(BaseModel):
     last_used_at: Optional[str] = None
     created_at: str
 
+class TopUpCreditRequest(BaseModel):
+    amount_usd: Decimal = Field(..., gt=0, example=50.00, description="Amount in USD to add to balance")
+    reason: Optional[str] = Field(None, example="Manual administrative allocation")
+
+class CreditBalanceResponse(BaseModel):
+    tenant_id: str
+    previous_balance_usd: float
+    added_amount_usd: float
+    new_balance_usd: float
+
 # --- Endpoints ---
 
 @router.post("/tenants/{tenant_id}/keys", response_model=KeyCreatedResponse, status_code=status.HTTP_201_CREATED)
@@ -42,7 +53,6 @@ async def create_tenant_api_key(
     payload: CreateKeyRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    # Verify tenant exists
     tenant_check = await db.execute(
         text("SELECT id FROM tenants WHERE id = :tid"),
         {"tid": str(tenant_id)}
@@ -50,7 +60,6 @@ async def create_tenant_api_key(
     if not tenant_check.scalars().first():
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    # Generate secure bcl_ key and SHA-256 hash
     raw_secret = secrets.token_hex(16)
     raw_key = f"bcl_{raw_secret}"
     key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
@@ -135,3 +144,41 @@ async def revoke_api_key(
         "key_prefix": row["key_prefix"],
         "is_active": row["is_active"]
     }
+
+
+@router.post("/tenants/{tenant_id}/credits", response_model=CreditBalanceResponse)
+async def top_up_tenant_credits(
+    tenant_id: UUID,
+    payload: TopUpCreditRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    tenant_check = await db.execute(
+        text("SELECT id, credit_balance_usd FROM tenants WHERE id = :tid"),
+        {"tid": str(tenant_id)}
+    )
+    row = tenant_check.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    previous_balance = float(row["credit_balance_usd"])
+    added_amount = float(payload.amount_usd)
+
+    update_query = text("""
+        UPDATE tenants
+        SET credit_balance_usd = credit_balance_usd + :amount
+        WHERE id = :tid
+        RETURNING credit_balance_usd
+    """)
+    result = await db.execute(update_query, {
+        "amount": added_amount,
+        "tid": str(tenant_id)
+    })
+    updated_row = result.mappings().first()
+    await db.commit()
+
+    return CreditBalanceResponse(
+        tenant_id=str(tenant_id),
+        previous_balance_usd=previous_balance,
+        added_amount_usd=added_amount,
+        new_balance_usd=float(updated_row["credit_balance_usd"])
+    )
