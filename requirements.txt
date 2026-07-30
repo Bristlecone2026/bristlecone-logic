@@ -8,3 +8,4 @@ python-multipart
 streamlit
 slowapi==0.1.9
 alembic
+httpx
