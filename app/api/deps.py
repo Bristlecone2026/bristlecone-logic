@@ -1,5 +1,6 @@
 import hashlib
 import time
+import asyncio
 from collections import defaultdict
 from typing import Optional, Dict, List
 from fastapi import Header, HTTPException, Depends, status
@@ -18,7 +19,7 @@ def check_rate_limit(key_id: str) -> None:
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW_SECONDS
 
-    # Filter out timestamps outside the current 60s window
+    # Filter out timestamps outside current 60s window
     RATE_LIMIT_STORE[key_id] = [ts for ts in RATE_LIMIT_STORE[key_id] if ts > window_start]
 
     if len(RATE_LIMIT_STORE[key_id]) >= MAX_REQUESTS_PER_WINDOW:
@@ -87,12 +88,13 @@ async def get_tenant_context(
         # 2. Rate Limit Guard (HTTP 429)
         check_rate_limit(key_id)
 
-        # Update last_used_at timestamp
-        await db.execute(
-            text("UPDATE api_keys SET last_used_at = NOW() WHERE id = :key_id"),
-            {"key_id": key_id}
+        # Non-blocking timestamp update
+        asyncio.create_task(
+            db.execute(
+                text("UPDATE api_keys SET last_used_at = NOW() WHERE id = :key_id"),
+                {"key_id": key_id}
+            )
         )
-        await db.commit()
 
         return {
             "auth_type": "api_key",
