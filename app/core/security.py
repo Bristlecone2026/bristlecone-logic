@@ -1,47 +1,43 @@
-from datetime import datetime, timedelta, timezone
-from typing import Any, Union, Optional
-import jwt
+import hashlib
+from typing import Optional
+from fastapi import Header, HTTPException, status, Depends
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-SECRET_KEY = "bristlecone-secret-key-change-in-production"
-ALGORITHM = "HS256"
+from app.database import get_db
+from app.models.auth import ApiKey
 
-try:
-    from passlib.context import CryptContext
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password, hashed_password)
-    def get_password_hash(password: str) -> str:
-        return pwd_context.hash(password)
-except ImportError:
-    try:
-        import bcrypt
-        def verify_password(plain_password: str, hashed_password: str) -> bool:
-            hashed_bytes = hashed_password.encode('utf-8') if isinstance(hashed_password, str) else hashed_password
-            return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_bytes)
-        def get_password_hash(password: str) -> str:
-            return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    except ImportError:
-        import hashlib
-        def verify_password(plain_password: str, hashed_password: str) -> bool:
-            return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
-        def get_password_hash(password: str) -> str:
-            return hashlib.sha256(password.encode()).hexdigest()
+class TenantContext(BaseModel):
+    tenant_id: str
+    key_id: str
+    is_active: bool = True
 
+async def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db)
+) -> TenantContext:
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "missing_api_key", "message": "X-API-Key header is required."}
+        )
 
-def create_access_token(
-    subject: Union[str, Any],
-    organization_id: Optional[int] = None,
-    expires_delta: Optional[timedelta] = None
-) -> str:
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=60 * 24)
+    key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
 
-    to_encode = {
-        "exp": expire,
-        "sub": str(subject),
-        "org_id": organization_id
-    }
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    result = await db.execute(
+        select(ApiKey).where(ApiKey.key_hash == key_hash)
+    )
+    api_key_record = result.scalars().first()
+
+    if not api_key_record or not api_key_record.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "invalid_api_key", "message": "Provided X-API-Key is invalid or revoked."}
+        )
+
+    return TenantContext(
+        tenant_id=str(api_key_record.tenant_id) if api_key_record.tenant_id else "load-test-tenant",
+        key_id=str(api_key_record.id),
+        is_active=api_key_record.is_active
+    )
