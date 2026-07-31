@@ -9,9 +9,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.database import get_db
-from app.models.models import ApiKey
-from app.api.v1.endpoints.agent import get_tenant_context, TenantContext
+from app.database import get_db
+from app.models.auth import ApiKey
+from app.core.security import TenantContext
+from app.api.deps import get_tenant_context
 
 router = APIRouter()
 
@@ -132,3 +133,19 @@ async def revoke_api_key(
     key.is_active = False
     await db.commit()
     return None
+
+# --- Metered Test Route ---
+from app.core.metering import MeteredAuth
+
+meter_test_request = MeteredAuth(unit_cost=0.0100, units=1)
+
+@router.post("/test-metered", status_code=200)
+async def test_metered_endpoint(
+    auth_key: ApiKey = Depends(meter_test_request)
+):
+    return {
+        "status": "success",
+        "message": "Request metered and processed",
+        "tenant_id": str(auth_key.tenant_id),
+        "key_id": str(auth_key.id)
+    }
