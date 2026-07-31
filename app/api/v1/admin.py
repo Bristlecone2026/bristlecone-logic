@@ -16,7 +16,7 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify
 # --- Schemas ---
 
 class CreateKeyRequest(BaseModel):
-    name: str = Field(..., example="Production Integration Key")
+    name: str = Field(..., json_schema_extra={"example": "Production Integration Key"})
 
 class KeyCreatedResponse(BaseModel):
     id: str
@@ -37,8 +37,8 @@ class KeyListItem(BaseModel):
     created_at: str
 
 class TopUpCreditRequest(BaseModel):
-    amount_usd: Decimal = Field(..., gt=0, example=50.00, description="Amount in USD to add to balance")
-    reason: Optional[str] = Field(None, example="Manual administrative allocation")
+    amount_usd: Decimal = Field(..., gt=0, json_schema_extra={"example": 50.00}, description="Amount in USD to add to balance")
+    reason: Optional[str] = Field(None, json_schema_extra={"example": "Manual administrative allocation"})
 
 class CreditBalanceResponse(BaseModel):
     tenant_id: str
@@ -187,7 +187,7 @@ async def top_up_tenant_credits(
 # --- Webhook & Notification Admin Endpoints ---
 
 class WebhookConfigRequest(BaseModel):
-    webhook_url: str = Field(..., example="https://hooks.example.com/alerts")
+    webhook_url: str = Field(..., json_schema_extra={"example": "https://hooks.example.com/alerts"})
 
 @router.post("/tenants/{tenant_id}/webhook")
 async def configure_tenant_webhook(
