@@ -1,55 +1,63 @@
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, HttpUrl
+import os
+import logging
+from decimal import Decimal
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from sqlalchemy import select
 
 from app.database import get_db
-from app.core.security import verify_api_key
-from app.services.notifications import set_tenant_webhook, get_tenant_webhook
+from app.models.billing import TenantBalance
+from app.schemas.billing import WebhookTopUpPayload
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-class WebhookConfigRequest(BaseModel):
-    webhook_url: str
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "bl_webhook_secret_2026")
 
-@router.get("/balance")
-async def get_balance(
-    tenant_context: dict = Depends(verify_api_key),
+@router.post("/webhook", status_code=status.HTTP_200_OK)
+async def handle_payment_webhook(
+    payload: WebhookTopUpPayload,
+    x_webhook_secret: str = Header(..., alias="X-Webhook-Secret"),
     db: AsyncSession = Depends(get_db)
 ):
-    tenant_id = tenant_context["tenant_id"]
-    query = text("SELECT balance_usd FROM tenant_balances WHERE tenant_id = :tenant_id")
-    result = await db.execute(query, {"tenant_id": tenant_id})
-    row = result.fetchone()
-    balance = float(row.balance_usd) if row else 100.0
+    if x_webhook_secret != WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing webhook secret header"
+        )
+
+    if payload.event_type != "payment.succeeded":
+        return {"status": "ignored", "reason": f"Unhandled event type: {payload.event_type}"}
+
+    tenant_id_str = payload.tenant_id
+    amount = payload.amount_usd
+
+    # Row-level pessimistic locking to handle concurrent webhook callbacks cleanly
+    stmt = select(TenantBalance).where(
+        TenantBalance.tenant_id == tenant_id_str
+    ).with_for_update()
+    
+    result = await db.execute(stmt)
+    tenant_balance = result.scalars().first()
+
+    if not tenant_balance:
+        tenant_balance = TenantBalance(
+            tenant_id=tenant_id_str,
+            balance_usd=amount
+        )
+        db.add(tenant_balance)
+    else:
+        tenant_balance.balance_usd += amount
+
+    await db.commit()
+    await db.refresh(tenant_balance)
+
+    logger.info(f"Top-up succeeded: tenant {tenant_id_str} credited +${amount}")
 
     return {
-        "tenant_id": tenant_id,
-        "balance_usd": balance
-    }
-
-@router.post("/webhook")
-async def configure_webhook(
-    payload: WebhookConfigRequest,
-    tenant_context: dict = Depends(verify_api_key),
-    db: AsyncSession = Depends(get_db)
-):
-    tenant_id = tenant_id = tenant_context["tenant_id"]
-    await set_tenant_webhook(tenant_id, payload.webhook_url, db)
-    return {
-        "status": "CONFIGURED",
-        "tenant_id": tenant_id,
-        "webhook_url": payload.webhook_url
-    }
-
-@router.get("/webhook")
-async def fetch_webhook(
-    tenant_context: dict = Depends(verify_api_key),
-    db: AsyncSession = Depends(get_db)
-):
-    tenant_id = tenant_context["tenant_id"]
-    url = await get_tenant_webhook(tenant_id, db)
-    return {
-        "tenant_id": tenant_id,
-        "webhook_url": url
+        "status": "success",
+        "tenant_id": tenant_id_str,
+        "amount_added": str(amount),
+        "new_balance_usd": str(tenant_balance.balance_usd),
+        "transaction_id": payload.transaction_id
     }
