@@ -31,7 +31,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             history.popleft()
 
         if len(history) >= rate_limit_rpm:
-            retry_after = int(60 - (now - history0[0]))  if history else 60
+            retry_after = int(60 - (now - history[0])) if history else 60
             logger.warning(f"Rate limit exceeded for tenant {tenant_id} ({len(history)}/{rate_limit_rpm} RPM)")
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
