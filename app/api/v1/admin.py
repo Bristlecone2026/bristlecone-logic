@@ -182,3 +182,26 @@ async def top_up_tenant_credits(
         added_amount_usd=added_amount,
         new_balance_usd=float(updated_row["credit_balance_usd"])
     )
+
+# --- Webhook & Notification Admin Endpoints ---
+
+class WebhookConfigRequest(BaseModel):
+    webhook_url: str = Field(..., example="https://hooks.example.com/alerts")
+
+@router.post("/tenants/{tenant_id}/webhook")
+async def configure_tenant_webhook(
+    tenant_id: UUID,
+    payload: WebhookConfigRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.notifications import set_tenant_webhook
+    await set_tenant_webhook(str(tenant_id), payload.webhook_url, db)
+    return {"status": "configured", "tenant_id": str(tenant_id), "webhook_url": payload.webhook_url}
+
+@router.post("/sweep-low-balances")
+async def trigger_low_balance_sweep(
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.notifications import scan_all_tenants_low_balance
+    tenants_flagged = await scan_all_tenants_low_balance(db)
+    return {"status": "completed", "tenants_checked_below_threshold": tenants_flagged}

@@ -2,10 +2,17 @@ import logging
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from prometheus_client import Counter
 
 logger = logging.getLogger("bristlecone.notifications")
 
 LOW_BALANCE_THRESHOLD_USD = 5.00
+
+LOW_BALANCE_ALERTS_TOTAL = Counter(
+    "bristlecone_low_balance_alerts_total",
+    "Total low-balance warning webhooks dispatched",
+    ["tenant_id"]
+)
 
 async def ensure_notification_schema(db: AsyncSession):
     await db.execute(text("""
@@ -89,5 +96,28 @@ async def check_and_notify_low_balance(tenant_id: str, current_balance: float, d
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.post(webhook_url, json=payload)
                     logger.info(f"Low-balance webhook delivered to {webhook_url} - Status: {resp.status_code}")
+                    LOW_BALANCE_ALERTS_TOTAL.labels(tenant_id=tenant_id).inc()
             except Exception as e:
                 logger.error(f"Failed to deliver low balance webhook to {webhook_url}: {e}")
+
+async def scan_all_tenants_low_balance(db: AsyncSession):
+    """
+    Sweeps tenants needing action: either currently below threshold OR needing recovery reset.
+    """
+    await ensure_notification_schema(db)
+    
+    # Query both breached tenants AND recovered tenants requiring reset
+    query = text("""
+        SELECT t.id, t.credit_balance_usd
+        FROM tenants t
+        LEFT JOIN tenant_notifications tn ON t.id::text = tn.tenant_id
+        WHERE t.is_active = TRUE 
+          AND (t.credit_balance_usd < :threshold OR tn.low_balance_notified = TRUE)
+    """)
+    result = await db.execute(query, {"threshold": LOW_BALANCE_THRESHOLD_USD})
+    rows = result.fetchall()
+    
+    for row in rows:
+        await check_and_notify_low_balance(str(row.id), float(row.credit_balance_usd), db)
+    
+    return len(rows)
