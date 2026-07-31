@@ -10,7 +10,8 @@ from sqlalchemy import text
 
 from app.database import get_db
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+from app.core.security import verify_admin_key
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify_admin_key)])
 
 # --- Schemas ---
 

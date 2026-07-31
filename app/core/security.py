@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.auth import ApiKey, UsageLog
+from app.core.config import SECRET_KEY, ADMIN_SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 try:
     from passlib.context import CryptContext
@@ -21,10 +22,8 @@ except ImportError:
 
 try:
     import jwt
-    SECRET_KEY = "bristlecone-secret-key-change-in-production"
-    ALGORITHM = "HS256"
     def create_access_token(subject: Union[str, Any], organization_id: Optional[int] = None, expires_delta: Optional[timedelta] = None) -> str:
-        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=11520))
+        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
         to_encode = {"exp": expire, "sub": str(subject)}
         if organization_id is not None:
             to_encode["organization_id"] = organization_id
@@ -84,3 +83,15 @@ async def verify_api_key(
         tenant_id=str(api_key_record.tenant_id),
         key_id=str(api_key_record.id)
     )
+
+async def verify_admin_key(
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+) -> bool:
+    provided_key = x_admin_key or x_api_key
+    if not provided_key or provided_key != ADMIN_SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "admin_access_required", "message": "Valid administrative credentials are required."}
+        )
+    return True
