@@ -1,4 +1,4 @@
-from app.middleware.rate_limiter import RateLimitMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 import time
 from fastapi import FastAPI, Request
 from app.api.v1.router import api_router
