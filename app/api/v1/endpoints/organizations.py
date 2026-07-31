@@ -7,14 +7,15 @@ from app.database import get_db
 from app.models import Organization, User
 from app.schemas import OrganizationResponse
 from app.api.deps import get_current_user
+from app.core.security import verify_api_key
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
-
 
 @router.get("/me", response_model=OrganizationResponse)
 async def get_my_organization(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    tenant_context: dict = Depends(verify_api_key)
 ):
     if not current_user.organization_id:
         raise HTTPException(
@@ -33,11 +34,11 @@ async def get_my_organization(
         )
     return org
 
-
 @router.get("", response_model=List[OrganizationResponse])
 async def list_organizations(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    tenant_context: dict = Depends(verify_api_key)
 ):
     if not current_user.organization_id:
         return []

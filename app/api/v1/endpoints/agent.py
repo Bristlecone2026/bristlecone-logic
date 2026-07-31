@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.api.deps import get_tenant_context
+from app.core.security import verify_api_key
 from app.services.billing import process_execution_billing
 from app.metrics import LLM_TOKENS_TOTAL, LLM_BILLED_USD_TOTAL
 
@@ -18,13 +18,12 @@ class AgentRunRequest(BaseModel):
 @router.post("/run")
 async def run_agent(
     payload: AgentRunRequest,
-    tenant_context: dict = Depends(get_tenant_context),
+    tenant_context: dict = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
     start_time = time.time()
     tenant_id = tenant_context["tenant_id"]
 
-    # Mock execution metadata simulating LLM throughput
     simulated_tokens = 350
     
     billing_result = await process_execution_billing(
@@ -41,7 +40,6 @@ async def run_agent(
             detail=billing_result["error"]
         )
 
-    # Record Prometheus LLM metrics
     LLM_TOKENS_TOTAL.labels(provider=payload.provider, model=payload.model).inc(simulated_tokens)
     LLM_BILLED_USD_TOTAL.labels(provider=payload.provider, model=payload.model).inc(billing_result["billed_cost_usd"])
 

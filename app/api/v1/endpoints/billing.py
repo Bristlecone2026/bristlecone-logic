@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from app.database import get_db
-from app.api.deps import get_tenant_context
+from app.core.security import verify_api_key
 from app.services.notifications import set_tenant_webhook, get_tenant_webhook
 
 router = APIRouter()
@@ -14,7 +14,7 @@ class WebhookConfigRequest(BaseModel):
 
 @router.get("/balance")
 async def get_balance(
-    tenant_context: dict = Depends(get_tenant_context),
+    tenant_context: dict = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
     tenant_id = tenant_context["tenant_id"]
@@ -31,10 +31,10 @@ async def get_balance(
 @router.post("/webhook")
 async def configure_webhook(
     payload: WebhookConfigRequest,
-    tenant_context: dict = Depends(get_tenant_context),
+    tenant_context: dict = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
-    tenant_id = tenant_context["tenant_id"]
+    tenant_id = tenant_id = tenant_context["tenant_id"]
     await set_tenant_webhook(tenant_id, payload.webhook_url, db)
     return {
         "status": "CONFIGURED",
@@ -44,7 +44,7 @@ async def configure_webhook(
 
 @router.get("/webhook")
 async def fetch_webhook(
-    tenant_context: dict = Depends(get_tenant_context),
+    tenant_context: dict = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
     tenant_id = tenant_context["tenant_id"]

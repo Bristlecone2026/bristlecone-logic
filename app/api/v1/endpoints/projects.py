@@ -7,15 +7,16 @@ from app.database import get_db
 from app.models import Project, User
 from app.schemas import ProjectCreate, ProjectResponse
 from app.api.deps import get_current_user
+from app.core.security import verify_api_key
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
-
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     payload: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    tenant_context: dict = Depends(verify_api_key)
 ):
     if not current_user.organization_id:
         raise HTTPException(
@@ -33,11 +34,11 @@ async def create_project(
     await db.refresh(proj)
     return proj
 
-
 @router.get("", response_model=List[ProjectResponse])
 async def list_projects(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    tenant_context: dict = Depends(verify_api_key)
 ):
     if not current_user.organization_id:
         return []
