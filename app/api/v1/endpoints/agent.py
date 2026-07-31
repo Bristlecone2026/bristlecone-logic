@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.core.security import verify_api_key
+from app.core.security import verify_api_key, TenantContext
 from app.services.billing import process_execution_billing
 from app.metrics import LLM_TOKENS_TOTAL, LLM_BILLED_USD_TOTAL
 
@@ -18,11 +18,11 @@ class AgentRunRequest(BaseModel):
 @router.post("/run")
 async def run_agent(
     payload: AgentRunRequest,
-    tenant_context: dict = Depends(verify_api_key),
+    tenant_context: TenantContext = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
     start_time = time.time()
-    tenant_id = tenant_context["tenant_id"]
+    tenant_id = tenant_context.tenant_id
 
     simulated_tokens = 350
     
@@ -66,6 +66,6 @@ async def run_agent(
         },
         "tenant_context": {
             "tenant_id": tenant_id,
-            "tier": tenant_context.get("tier", "pro")
+            "tier": getattr(tenant_context, "tier", "pro")
         }
     }
