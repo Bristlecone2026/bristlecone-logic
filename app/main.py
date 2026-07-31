@@ -1,3 +1,4 @@
+from app.middleware.rate_limiter import RateLimitMiddleware
 import time
 from fastapi import FastAPI, Request
 from app.api.v1.router import api_router
@@ -5,6 +6,7 @@ from app.api.v1 import admin
 from app.metrics import HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION_SECONDS, metrics_response
 
 app = FastAPI(title="Bristlecone v2.0 API")
+app.add_middleware(RateLimitMiddleware)
 
 @app.middleware("http")
 async def prometheus_metrics_middleware(request: Request, call_next):
