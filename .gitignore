@@ -11,3 +11,6 @@ __pycache__/
 venv/
 .pytest_cache/
 *.db
+
+nginx/certs/
+*.bak

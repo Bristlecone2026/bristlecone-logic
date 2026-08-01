@@ -10,10 +10,12 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.auth import ApiKey
 from app.models.billing import TenantBalance, ApiUsageLog
+from app.core.rate_limiter import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+rate_limiter = RedisRateLimiter(requests_per_minute=60)
 
 def hash_api_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
@@ -34,7 +36,14 @@ class MeteredAuth:
                 detail="Missing X-API-Key header"
             )
 
-        key_record = await self._verify_key(api_key, db)
+        # 1. Quick key hash for identifier
+        key_hash = hash_api_key(api_key)
+
+        # 2. Redis Rate Limit Check BEFORE hitting Postgres DB
+        await rate_limiter.check_rate_limit(key_hash)
+
+        # 3. Verify API Key in DB
+        key_record = await self._verify_key_by_hash(key_hash, db)
         if not key_record or not getattr(key_record, "is_active", True):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -43,6 +52,7 @@ class MeteredAuth:
 
         tenant_id_str = str(key_record.tenant_id)
 
+        # 4. Balance Deduction Check in DB
         balance_stmt = select(TenantBalance).where(
             TenantBalance.tenant_id == tenant_id_str
         )
@@ -72,8 +82,7 @@ class MeteredAuth:
 
         return key_record
 
-    async def _verify_key(self, raw_key: str, db: AsyncSession) -> Optional[ApiKey]:
-        key_hash = hash_api_key(raw_key)
+    async def _verify_key_by_hash(self, key_hash: str, db: AsyncSession) -> Optional[ApiKey]:
         stmt = select(ApiKey).where(ApiKey.key_hash == key_hash)
         res = await db.execute(stmt)
         return res.scalars().first()
