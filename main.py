@@ -1,15 +1,16 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, Depends
 import redis.asyncio as aioredis
+from src.layer0.payment import verify_x402_payment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-# Corrected Atomic Lua script using INCRBYFLOAT for floating point subtraction
+# Atomic Lua script using INCRBYFLOAT for floating point subtraction
 METER_LUA = """
 local rate_key = KEYS[1]
 local balance_key = KEYS[2]
@@ -84,3 +85,23 @@ async def metered_endpoint(request: Request, x_api_key: str = Header(default="bl
     except Exception as e:
         logger.error(f"Execution error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/x402/execute")
+async def x402_execute_endpoint(request: Request, payment_data: dict = Depends(verify_x402_payment)):
+    """
+    Public Monetizable M2M Endpoint guarded by Layer 0 x402 Payment Settlement.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    return {
+        "status": "success",
+        "payment": payment_data,
+        "result": {
+            "engine": "Bristlecone Zero-Trust Engine L0-L5",
+            "intent_processed": body.get("intent", "commodity_query"),
+            "execution_status": "COMPLETED"
+        }
+    }

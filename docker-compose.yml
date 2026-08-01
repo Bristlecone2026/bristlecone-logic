@@ -1,50 +1,48 @@
 services:
   api:
     build: .
-    container_name: bristlecone_api
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
-      - REDIS_URL=redis://redis:6379/0
+    container_name: bristlecone_api
     depends_on:
-      - db
-      - redis
-
-  worker:
-    build: .
-    container_name: bristlecone_worker
-    command: python3 worker.py
+    - db
+    - redis
+    env_file:
+    - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - db
-      - redis
-
+    - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
+    - REDIS_URL=redis://redis:6379/0
   db:
-    image: postgres:16
     container_name: bristlecone_db
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=bristlecone_db
+    - POSTGRES_USER=postgres
+    - POSTGRES_PASSWORD=postgres
+    - POSTGRES_DB=bristlecone_db
+    image: postgres:16
     ports:
-      - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    container_name: bristlecone_redis
-    ports:
-      - "6379:6379"
-
+    - 5432:5432
   nginx:
-    image: nginx:latest
     container_name: bristlecone_proxy
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
-      - api
+    - api
+    image: nginx:latest
+    ports:
+    - 443:443
+    - 80:80
+    volumes:
+    - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    - ./nginx/certs:/etc/nginx/certs:ro
+  redis:
+    container_name: bristlecone_redis
+    image: redis:7-alpine
+    ports:
+    - 6379:6379
+  worker:
+    build: .
+    command: python3 worker.py
+    container_name: bristlecone_worker
+    depends_on:
+    - db
+    - redis
+    environment:
+    - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
+    - REDIS_URL=redis://redis:6379/0
