@@ -1,48 +1,79 @@
 services:
   api:
     build: .
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     container_name: bristlecone_api
+    volumes:
+      - .:/app
     depends_on:
-    - db
-    - redis
+      - db
+      - redis
     env_file:
-    - .env
+      - .env
     environment:
-    - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
-    - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
+      - REDIS_URL=redis://redis:6379/0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 256M
+
   db:
     container_name: bristlecone_db
-    environment:
-    - POSTGRES_USER=postgres
-    - POSTGRES_PASSWORD=postgres
-    - POSTGRES_DB=bristlecone_db
     image: postgres:16
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=bristlecone_db
     ports:
-    - 5432:5432
+      - 5432:5432
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 256M
+
   nginx:
     container_name: bristlecone_proxy
-    depends_on:
-    - api
     image: nginx:latest
+    depends_on:
+      - api
     ports:
-    - 443:443
-    - 80:80
+      - 443:443
+      - 80:80
     volumes:
-    - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 128M
+
   redis:
     container_name: bristlecone_redis
     image: redis:7-alpine
     ports:
-    - 6379:6379
+      - 6379:6379
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 128M
+
   worker:
     build: .
     command: python3 worker.py
     container_name: bristlecone_worker
     depends_on:
-    - db
-    - redis
+      - db
+      - redis
     environment:
-    - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
-    - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
+      - REDIS_URL=redis://redis:6379/0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 256M

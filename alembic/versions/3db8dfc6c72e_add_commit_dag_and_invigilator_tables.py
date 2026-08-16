@@ -17,7 +17,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # 1. Drop organization slug if intended
-    op.drop_column('organizations', 'slug')
+    # # op.drop_column('organizations', 'slug')
     
     # 2. Add title as nullable first so existing rows don't violate constraints
     op.add_column('projects', sa.Column('title', sa.String(length=255), nullable=True))
