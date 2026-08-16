@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 
+from app.services.xrpl_listener import start_xrpl_listener
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker")
 
@@ -70,10 +72,9 @@ async def check_and_alert_low_balance(redis_client, session: AsyncSession, tenan
                     "tenant_name": tenant_name,
                     "current_balance_usd": new_balance,
                     "threshold_usd": threshold,
-                    "deposit_network": "Base L2",
-                    "accepted_asset": "USDC",
-                    "receiver_address": BASE_RECEIVER_ADDRESS,
-                    "message": "Your credit balance is low. Please replenish your wallet to avoid service interruption."
+                    "deposit_network": "Base L2 / XRPL",
+                    "accepted_assets": ["USDC", "XRP", "RLUSD"],
+                    "message": "Your credit balance is low. Please replenish via Base L2 or XRPL to avoid interruption."
                 }
                 asyncio.create_task(send_low_balance_webhook(webhook_url, payload))
     else:
@@ -82,9 +83,11 @@ async def check_and_alert_low_balance(redis_client, session: AsyncSession, tenan
 async def credit_tenant_deposit(redis_client, session: AsyncSession, tenant_id: uuid.UUID, tx_hash: str, block_num: int, from_addr: str, amount_usdc: Decimal):
     insert_sql = text("""
         INSERT INTO tenant_deposits (
-            tenant_id, tx_hash, block_number, from_address, to_address, amount_usdc, status
+            tenant_id, tx_hash, block_number, from_address, to_address,
+            amount_usdc, raw_amount, usd_value, network, asset, status
         ) VALUES (
-            :tenant_id, :tx_hash, :block_num, :from_addr, :to_addr, :amount, 'confirmed'
+            :tenant_id, :tx_hash, :block_num, :from_addr, :to_addr,
+            :amount, :amount, :amount, 'base_l2', 'USDC', 'confirmed'
         )
         ON CONFLICT (tx_hash) DO NOTHING
         RETURNING id;
@@ -120,13 +123,11 @@ async def credit_tenant_deposit(redis_client, session: AsyncSession, tenant_id: 
 
     balance_key = f"balance:{tenant_id}"
     new_balance = await redis_client.incrbyfloat(balance_key, float(amount_usdc))
-
-    # Clear low balance lock since funds were added
     alert_key = f"alert:low_balance:{tenant_id}"
     await redis_client.delete(alert_key)
 
     logger.info(
-        f"[DEPOSIT CREDITED] Tenant {tenant_id} topped up +${amount_usdc:.2f} USDC "
+        f"[BASE L2 DEPOSIT CREDITED] Tenant {tenant_id} topped up +${amount_usdc:.2f} USDC "
         f"(New Redis Balance: ${new_balance:.6f}) via Tx: {tx_hash}"
     )
     return True
@@ -151,7 +152,7 @@ async def deposit_listener_loop(redis_client):
             else:
                 await asyncio.sleep(1)
         except Exception as e:
-            logger.error(f"Error in deposit listener: {e}")
+            logger.error(f"Error in Base L2 deposit listener: {e}")
             await asyncio.sleep(1)
 
 async def usage_sync_loop(redis_client):
@@ -270,10 +271,11 @@ async def process_batch(redis_client, session: AsyncSession, entries):
 
 async def main():
     redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-    logger.info("Starting background worker services...")
+    logger.info("Starting Bristlecone background daemons (Usage, Base L2, XRPL WebSocket)...")
     await asyncio.gather(
         usage_sync_loop(redis_client),
-        deposit_listener_loop(redis_client)
+        deposit_listener_loop(redis_client),
+        start_xrpl_listener(redis_client, AsyncSessionLocal)
     )
 
 if __name__ == "__main__":

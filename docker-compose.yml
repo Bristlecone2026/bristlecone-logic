@@ -1,8 +1,11 @@
 services:
   api:
     build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    working_dir: /app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     container_name: bristlecone_api
+    ports:
+      - "8000:8000"
     volumes:
       - .:/app
     depends_on:
@@ -86,6 +89,7 @@ services:
 
   worker:
     build: .
+    working_dir: /app
     command: python3 worker.py
     container_name: bristlecone_worker
     volumes:
@@ -95,6 +99,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
       - REDIS_URL=redis://redis:6379/0

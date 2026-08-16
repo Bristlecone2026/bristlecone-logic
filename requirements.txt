@@ -16,3 +16,4 @@ redis>=5.0.0
 redis
 beautifulsoup4>=4.12.3
 markdownify>=0.12.1
+websockets>=12.0

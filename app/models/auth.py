@@ -41,3 +41,6 @@ class UsageLog(Base):
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     tenant = relationship("Tenant", back_populates="usage_logs")
+
+# Compatibility alias
+APIKey = ApiKey
