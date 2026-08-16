@@ -5,40 +5,16 @@ from typing import Optional, Union, Any
 from fastapi import Header, HTTPException, Depends, status, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.database import get_db
 from app.models.auth import ApiKey, UsageLog
 from app.core.config import SECRET_KEY, ADMIN_SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
-try:
-    from passlib.context import CryptContext
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password, hashed_password)
-except ImportError:
-    def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
-
-try:
-    import jwt
-    def create_access_token(subject: Union[str, Any], organization_id: Optional[int] = None, expires_delta: Optional[timedelta] = None) -> str:
-        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-        to_encode = {"exp": expire, "sub": str(subject)}
-        if organization_id is not None:
-            to_encode["organization_id"] = organization_id
-        return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-except ImportError:
-    def create_access_token(subject: Union[str, Any], organization_id: Optional[int] = None, expires_delta: Optional[timedelta] = None) -> str:
-        import base64, json
-        header = base64.b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode()
-        payload = base64.b64encode(json.dumps({"sub": str(subject), "organization_id": organization_id}).encode()).decode()
-        sig = base64.b64encode(hashlib.sha256(f"{header}.{payload}".encode()).hexdigest().encode()).decode()
-        return f"{header}.{payload}.{sig}"
-
 class TenantContext(BaseModel):
     tenant_id: str
     key_id: str
+    rate_limit_rpm: int = 60
 
 async def verify_api_key(
     request: Request,
@@ -70,6 +46,14 @@ async def verify_api_key(
     now = datetime.now(timezone.utc)
     api_key_record.last_used_at = now
 
+    # Fetch tenant's configured rate limit
+    tenant_res = await db.execute(
+        text("SELECT rate_limit_rpm FROM tenants WHERE id = :tid"),
+        {"tid": api_key_record.tenant_id}
+    )
+    rpm_val = tenant_res.scalar()
+    rate_limit_rpm = int(rpm_val) if rpm_val is not None else 60
+
     usage_entry = UsageLog(
         id=uuid.uuid4(),
         tenant_id=api_key_record.tenant_id,
@@ -81,7 +65,8 @@ async def verify_api_key(
 
     return TenantContext(
         tenant_id=str(api_key_record.tenant_id),
-        key_id=str(api_key_record.id)
+        key_id=str(api_key_record.id),
+        rate_limit_rpm=rate_limit_rpm
     )
 
 async def verify_admin_key(

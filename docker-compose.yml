@@ -1,13 +1,15 @@
 services:
   api:
     build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     container_name: bristlecone_api
     volumes:
       - .:/app
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -16,8 +18,14 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.20'
-          memory: 256M
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/api/v1/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   db:
     container_name: bristlecone_db
@@ -28,11 +36,18 @@ services:
       - POSTGRES_DB=bristlecone_db
     ports:
       - 5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     deploy:
       resources:
         limits:
-          cpus: '0.10'
-          memory: 256M
+          cpus: '0.50'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bristlecone_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   nginx:
     container_name: bristlecone_proxy
@@ -48,7 +63,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.05'
+          cpus: '0.25'
           memory: 128M
 
   redis:
@@ -56,24 +71,39 @@ services:
     image: redis:7-alpine
     ports:
       - 6379:6379
+    volumes:
+      - redis_data:/data
     deploy:
       resources:
         limits:
-          cpus: '0.05'
-          memory: 128M
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   worker:
     build: .
     command: python3 worker.py
     container_name: bristlecone_worker
+    volumes:
+      - .:/app
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/bristlecone_db
       - REDIS_URL=redis://redis:6379/0
     deploy:
       resources:
         limits:
-          cpus: '0.20'
-          memory: 256M
+          cpus: '0.50'
+          memory: 512M
+
+volumes:
+  postgres_data:
+  redis_data:

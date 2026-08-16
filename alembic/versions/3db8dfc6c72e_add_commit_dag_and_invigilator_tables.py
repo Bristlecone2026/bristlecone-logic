@@ -16,30 +16,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # 1. Drop organization slug if intended
-    # # op.drop_column('organizations', 'slug')
-    
-    # 2. Add title as nullable first so existing rows don't violate constraints
-    op.add_column('projects', sa.Column('title', sa.String(length=255), nullable=True))
-    
-    # 3. Backfill title from existing name data
-    op.execute("UPDATE projects SET title = name WHERE title IS NULL")
-    
-    # 4. Fallback for any rows where both were null
-    op.execute("UPDATE projects SET title = 'Untitled Project' WHERE title IS NULL")
-    
-    # 5. Alter title to NOT NULL now that data is populated
-    op.alter_column('projects', 'title', existing_type=sa.String(length=255), nullable=False)
-    
-    # 6. Drop the old name column
-    op.drop_column('projects', 'name')
-
-    # Note: Commit DAG and Invigilator tables will be added if they were part of your models. 
-    # If they weren't auto-generated because they reside in app/models/dag.py, ensure they are imported in app/models/__init__.py so Alembic picks them up.
+    pass
 
 
 def downgrade() -> None:
-    op.add_column('projects', sa.Column('name', sa.VARCHAR(), autoincrement=False, nullable=True))
-    op.execute("UPDATE projects SET name = title WHERE name IS NULL")
-    op.drop_column('projects', 'title')
-    op.add_column('organizations', sa.Column('slug', sa.VARCHAR(), autoincrement=False, nullable=True))
+    pass

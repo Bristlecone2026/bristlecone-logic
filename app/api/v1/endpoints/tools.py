@@ -14,7 +14,6 @@ from app.core.security import TenantContext, verify_api_key
 logger = logging.getLogger("api.tools")
 router = APIRouter()
 
-# Pricing in USD
 COST_WEB_EXTRACT = "0.005000"
 COST_JSON_REPAIR = "0.002000"
 
@@ -26,7 +25,7 @@ local max_rate = tonumber(ARGV[2])
 
 local current_reqs = redis.call('INCR', rate_key)
 if current_reqs == 1 then
-    redis.call('EXPIRE', rate_key, 1)
+    redis.call('EXPIRE', rate_key, 60)
 end
 if current_reqs > max_rate then
     return {429, tostring(current_reqs)}
@@ -41,19 +40,19 @@ local new_bal = redis.call('INCRBYFLOAT', balance_key, -cost)
 return {200, tostring(new_bal)}
 """
 
-async def execute_metering(request: Request, tenant: TenantContext, endpoint: str, cost: str, max_rate: str = "60"):
+async def execute_metering(request: Request, tenant: TenantContext, endpoint: str, cost: str):
     redis_conn = request.app.state.redis
     rate_key = f"rate:{tenant.tenant_id}"
     balance_key = f"balance:{tenant.tenant_id}"
 
-    res = await redis_conn.eval(METER_LUA, 2, rate_key, balance_key, cost, max_rate)
+    res = await redis_conn.eval(METER_LUA, 2, rate_key, balance_key, cost, str(tenant.rate_limit_rpm))
     status_code = int(res[0])
     val = float(res[1])
 
     if status_code == 429:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded. Maximum 60 requests per second."
+            detail=f"Rate limit exceeded. Maximum {tenant.rate_limit_rpm} requests per minute."
         )
     elif status_code == 402:
         raise HTTPException(
@@ -80,9 +79,6 @@ async def execute_metering(request: Request, tenant: TenantContext, endpoint: st
     )
     return val
 
-
-# --- Schemas ---
-
 class WebExtractRequest(BaseModel):
     url: str
     extract_links: bool = False
@@ -106,25 +102,18 @@ class JsonRepairResponse(BaseModel):
     details: Optional[str] = None
     remaining_balance_usd: float
 
-
-# --- Helper Functions ---
-
 def clean_and_repair_json(raw: str):
     raw_clean = raw.strip()
-    
-    # 1. Strip markdown code blocks
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw_clean)
     if match:
         raw_clean = match.group(1).strip()
 
-    # 2. Try standard json.loads
     try:
         parsed = json.loads(raw_clean)
         return parsed, False, "Valid JSON"
     except Exception:
         pass
 
-    # 3. Try ast.literal_eval (handles Python booleans, single quotes, trailing commas)
     try:
         evaluated = ast.literal_eval(raw_clean)
         if isinstance(evaluated, (dict, list, str, int, float, bool)) or evaluated is None:
@@ -132,14 +121,12 @@ def clean_and_repair_json(raw: str):
     except Exception:
         pass
 
-    # 4. Heuristic normalization
-    repaired = re.sub(r",\s*([\]}])", r"", raw_clean)
-    repaired = re.sub(r"None", "null", repaired)
-    repaired = re.sub(r"True", "true", repaired)
-    repaired = re.sub(r"False", "false", repaired)
-    repaired = re.sub(r"(?<!\)'", '"', repaired)
+    repaired = re.sub(r",\s*([\]}])", r"\1", raw_clean)
+    repaired = re.sub(r"\bNone\b", "null", repaired)
+    repaired = re.sub(r"\bTrue\b", "true", repaired)
+    repaired = re.sub(r"\bFalse\b", "false", repaired)
+    repaired = re.sub(r"(?<!\\)'", '"', repaired)
 
-    # Balance unclosed brackets/braces
     open_braces = repaired.count("{") - repaired.count("}")
     open_brackets = repaired.count("[") - repaired.count("]")
     repaired += ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
@@ -152,9 +139,6 @@ def clean_and_repair_json(raw: str):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unable to parse or repair input JSON: {str(e)}"
         )
-
-
-# --- Endpoints ---
 
 @router.post("/web-extract", response_model=WebExtractResponse)
 async def web_extract(
@@ -184,11 +168,8 @@ async def web_extract(
         )
 
     soup = BeautifulSoup(html_content, "html.parser")
-
-    # Extract title
     title = soup.title.string.strip() if soup.title and soup.title.string else None
 
-    # Strip scripts, styles, forms, navs
     for tag in soup(["script", "style", "noscript", "svg", "header", "footer", "nav", "iframe"]):
         tag.decompose()
 
@@ -199,7 +180,6 @@ async def web_extract(
             if href.startswith("http") and href not in links:
                 links.append(href)
 
-    # Convert to markdown
     content_md = md(str(soup), heading_style="ATX", strip=["img"])
     content_md = re.sub(r"\n{3,}", "\n\n", content_md).strip()
 
@@ -214,7 +194,6 @@ async def web_extract(
         character_count=len(content_md),
         remaining_balance_usd=remaining_balance
     )
-
 
 @router.post("/json-repair", response_model=JsonRepairResponse)
 async def json_repair(

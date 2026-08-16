@@ -1,10 +1,13 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI
 import redis.asyncio as aioredis
 
 from app.api.v1.router import api_router
+from app.routers.llm import router as llm_router
+from app.routers.billing import router as billing_router
+from app.routers.health import router as health_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
@@ -14,12 +17,14 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(
-        REDIS_URL, 
+        REDIS_URL,
         decode_responses=True,
         max_connections=100
     )
+    logger.info("API lifespan: Redis connection pool established.")
     yield
     await app.state.redis.close()
+    logger.info("API lifespan: Redis connection pool closed.")
 
 app = FastAPI(
     title="Bristlecone Logic M2M API",
@@ -28,9 +33,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Mount core v1 router
+# Route registrations
 app.include_router(api_router, prefix="/api/v1")
-
-@app.get("/health", tags=["Health"])
-async def health_check():
-    return {"status": "ok", "service": "bristlecone_api"}
+app.include_router(llm_router)
+app.include_router(billing_router)
+app.include_router(health_router)
