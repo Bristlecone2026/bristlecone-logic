@@ -150,3 +150,34 @@ async def start_xrpl_listener(redis_client, session_factory):
             logger.warning(f"[XRPL WS] Connection error: {e}. Retrying in {backoff}s...")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)
+
+import httpx
+
+XRPL_JSON_RPC_URL = os.getenv("XRPL_JSON_RPC_URL", "https://s.altnet.rippletest.net:51234")
+
+async def xrpl_polling_backstop(redis_client, session_factory):
+    logger.info("Starting XRPL polling backstop loop (every 60s)...")
+    while True:
+        await asyncio.sleep(60)
+        try:
+            payload = {
+                "method": "account_tx",
+                "params": [{
+                    "account": XRPL_TREASURY_ADDRESS,
+                    "limit": 20,
+                    "ledger_index_min": -1,
+                    "ledger_index_max": -1
+                }]
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.post(XRPL_JSON_RPC_URL, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    transactions = data.get("result", {}).get("transactions", [])
+                    for tx_wrapper in transactions:
+                        tx = tx_wrapper.get("tx", {})
+                        tx["meta"] = tx_wrapper.get("meta")
+                        tx["ledger_index"] = tx_wrapper.get("ledger_index")
+                        await process_xrpl_payment(redis_client, session_factory, tx)
+        except Exception as e:
+            logger.error(f"[XRPL Poll] Error in polling backstop: {e}")

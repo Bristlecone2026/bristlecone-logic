@@ -1,111 +1,83 @@
-import secrets
-from typing import List, Dict, Any
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import func
-from pydantic import BaseModel
+from sqlalchemy import text
+from pydantic import BaseModel, Field
+import secrets
+import hashlib
+import uuid
 
-from app.database import get_db
-from app.models.auth import APIKey
-from app.models.usage import UsageLog
+router = APIRouter(prefix="/api/v1/admin", tags=["Admin Provisioning"])
 
-router = APIRouter(prefix="/api/v1/admin", tags=["Admin & Usage"])
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., description="Tenant organization or individual name")
+    webhook_url: str | None = Field(None, description="Webhook URL for low-balance or event alerts")
+    low_balance_threshold_usd: float = Field(1.0, description="USD threshold for low-balance alerts")
 
-class KeyCreateRequest(BaseModel):
-    organization_id: int
-    name: str
+class APIKeyCreateRequest(BaseModel):
+    name: str = Field("Default Key", description="Friendly name for the API key")
 
-class KeyCreateResponse(BaseModel):
-    id: int
-    name: str
-    organization_id: int
-    api_key: str
-    created_at: datetime
+@router.post("/tenants", status_code=status.HTTP_201_CREATED)
+async def create_tenant(payload: TenantCreateRequest):
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                INSERT INTO tenants (name, webhook_url, low_balance_threshold_usd)
+                VALUES (:name, :webhook_url, :threshold)
+                RETURNING id, name, xrpl_destination_tag, credit_balance_usd, created_at
+            """),
+            {
+                "name": payload.name,
+                "webhook_url": payload.webhook_url,
+                "threshold": payload.low_balance_threshold_usd
+            }
+        )
+        row = result.first()
+        await session.commit()
+        return {
+            "status": "success",
+            "tenant": {
+                "id": str(row[0]),
+                "name": row[1],
+                "xrpl_destination_tag": row[2],
+                "credit_balance_usd": float(row[3]),
+                "created_at": row[4]
+            }
+        }
 
-class KeyInfo(BaseModel):
-    id: int
-    name: str
-    organization_id: int
-    prefix: str
-    is_active: bool
-    created_at: datetime
+@router.post("/tenants/{tenant_id}/api-keys", status_code=status.HTTP_201_CREATED)
+async def generate_api_key(tenant_id: str, payload: APIKeyCreateRequest):
+    from app.database import AsyncSessionLocal
+    try:
+        t_uuid = uuid.UUID(tenant_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant ID format.")
 
-class UsageSummary(BaseModel):
-    organization_id: int
-    total_requests: int
-    endpoints: Dict[str, int]
+    raw_key = f"bc_live_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
-@router.post("/keys", response_model=KeyCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_api_key(body: KeyCreateRequest, db: AsyncSession = Depends(get_db)):
-    raw_key = f"bc_live_{secrets.token_hex(16)}"
-    prefix = raw_key[:12]
-    
-    new_key = APIKey(
-        organization_id=body.organization_id,
-        name=body.name,
-        key=raw_key,
-        prefix=prefix,
-        is_active=True
-    )
-    db.add(new_key)
-    await db.commit()
-    await db.refresh(new_key)
-    
-    return KeyCreateResponse(
-        id=new_key.id,
-        name=new_key.name,
-        organization_id=new_key.organization_id,
-        api_key=raw_key,
-        created_at=new_key.created_at
-    )
+    async with AsyncSessionLocal() as session:
+        t_res = await session.execute(text("SELECT id FROM tenants WHERE id = :tid"), {"tid": t_uuid})
+        if not t_res.first():
+            raise HTTPException(status_code=404, detail="Tenant not found.")
 
-@router.get("/keys", response_model=List[KeyInfo])
-async def list_api_keys(organization_id: int, db: AsyncSession = Depends(get_db)):
-    stmt = select(APIKey).where(APIKey.organization_id == organization_id, APIKey.is_active == True)
-    result = await db.execute(stmt)
-    keys = result.scalars().all()
-    
-    return [
-        KeyInfo(
-            id=k.id,
-            name=k.name,
-            organization_id=k.organization_id,
-            prefix=getattr(k, "prefix", k.key[:12] if hasattr(k, "key") else "bc_live_****"),
-            is_active=k.is_active,
-            created_at=k.created_at
-        ) for k in keys
-    ]
+        res = await session.execute(
+            text("""
+                INSERT INTO api_keys (tenant_id, key_hash, name)
+                VALUES (:tenant_id, :key_hash, :name)
+                RETURNING id, created_at
+            """),
+            {
+                "tenant_id": t_uuid,
+                "key_hash": key_hash,
+                "name": payload.name
+            }
+        )
+        row = res.first()
+        await session.commit()
 
-@router.delete("/keys/{key_id}")
-async def revoke_api_key(key_id: int, db: AsyncSession = Depends(get_db)):
-    stmt = select(APIKey).where(APIKey.id == key_id)
-    result = await db.execute(stmt)
-    key_obj = result.scalar_one_or_none()
-    if not key_obj:
-        raise HTTPException(status_code=404, detail="API key not found")
-    
-    key_obj.is_active = False
-    await db.commit()
-    return {"status": "success", "message": f"API key {key_id} revoked successfully"}
-
-@router.get("/usage", response_model=UsageSummary)
-async def get_usage_metrics(organization_id: int, db: AsyncSession = Depends(get_db)):
-    count_stmt = select(func.count(UsageLog.id)).where(UsageLog.organization_id == organization_id)
-    total_res = await db.execute(count_stmt)
-    total_requests = total_res.scalar() or 0
-    
-    ep_stmt = (
-        select(UsageLog.endpoint, func.count(UsageLog.id))
-        .where(UsageLog.organization_id == organization_id)
-        .group_by(UsageLog.endpoint)
-    )
-    ep_res = await db.execute(ep_stmt)
-    endpoints = {row[0]: row[1] for row in ep_res.all()}
-    
-    return UsageSummary(
-        organization_id=organization_id,
-        total_requests=total_requests,
-        endpoints=endpoints
-    )
+        return {
+            "status": "success",
+            "api_key_id": str(row[0]),
+            "raw_api_key": raw_key,
+            "note": "Store this key securely. It cannot be retrieved again."
+        }

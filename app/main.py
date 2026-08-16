@@ -1,3 +1,4 @@
+from app.routers import admin
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -49,3 +50,5 @@ async def root():
         "openapi_spec": "/openapi.json",
         "status": "operational"
     }
+
+app.include_router(admin.router)
