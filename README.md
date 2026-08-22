@@ -1,3 +1,7 @@
+mcp-name: io.github.Bristlecone2026/bristlecone-logic
+
+<!-- mcp-name: io.github.Bristlecone2026/bristlecone-logic -->
+
 # Bristlecone Logic LLC — M2M Base USDC Sweeper Bot
 
 ## System Overview
