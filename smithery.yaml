@@ -1,0 +1,20 @@
+version: "1.0"
+name: "bristlecone-logic"
+description: "High-reliability web content extraction and schema validation utilities micro-settled via XRPL."
+startCommand:
+  type: "stdio"
+  command: "uvx"
+  args: ["bristlecone-mcp"]
+  env:
+    BRISTLECONE_API_KEY:
+      description: "API key issued by Bristlecone Logic (starts with bstk_)"
+      required: true
+    BRISTLECONE_API_URL:
+      description: "Bristlecone API host"
+      default: "https://api.bristleconelogic.com"
+      required: false
+tools:
+  - name: "bristlecone_extract_web"
+    description: "Extract clean, sanitized text/markdown from target web pages."
+  - name: "bristlecone_validate_schema"
+    description: "Validate JSON payloads against standard JSON schemas."

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bristlecone Logic — Autonomous Utility Layer for AI Agents</title>
+  <meta name="description" content="Pay-per-request API utilities and Model Context Protocol (MCP) servers micro-settled via XRPL.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0b0f19; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .code-box { background-color: #030712; border: 1px solid #1f2937; }
+    .accent { color: #38bdf8; }
+    .border-accent { border-color: #1e293b; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-6 sm:p-12 max-w-5xl mx-auto">
+  
+  <header class="flex justify-between items-center pb-8 border-b border-gray-800">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded bg-sky-500 flex items-center justify-center font-bold text-black text-lg">B</div>
+      <span class="text-xl font-bold tracking-tight text-white">Bristlecone Logic</span>
+    </div>
+    <div class="flex space-x-6 text-sm text-gray-400">
+      <a href="https://api.bristleconelogic.com/docs" class="hover:text-sky-400 transition">API Docs</a>
+      <a href="https://github.com/bristleconelogic" class="hover:text-sky-400 transition">GitHub</a>
+    </div>
+  </header>
+
+  <main class="py-16 space-y-16">
+    <div class="space-y-6">
+      <div class="inline-flex items-center space-x-2 px-3 py-1 text-xs font-mono rounded-full bg-sky-950/60 border border-sky-800 text-sky-300">
+        <span>● Active on XRPL Mainnet</span>
+      </div>
+      <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white leading-tight">
+        Zero Subscriptions.<br>
+        <span class="text-sky-400">Micro-Settled Utilities</span> for AI Agents.
+      </h1>
+      <p class="text-lg text-gray-400 max-w-2xl leading-relaxed">
+        High-reliability endpoints built specifically for autonomous agents, Cursor, and Claude Desktop. Pay fractions of a cent per call using on-chain micropayments.
+      </p>
+    </div>
+
+    <!-- Features / Pricing Table -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="p-6 rounded-lg bg-gray-900/50 border border-gray-800 space-y-3">
+        <h3 class="text-lg font-semibold text-white">bristlecone_extract_web</h3>
+        <p class="text-sm text-gray-400">Extracts clean, sanitized markdown/text from target web pages, stripping tracking scripts, ads, and boilerplate.</p>
+        <div class="text-xs font-mono text-sky-400 pt-2">Cost: 1 micro-credit ($0.001 USD)</div>
+      </div>
+      <div class="p-6 rounded-lg bg-gray-900/50 border border-gray-800 space-y-3">
+        <h3 class="text-lg font-semibold text-white">bristlecone_validate_schema</h3>
+        <p class="text-sm text-gray-400">Validates complex JSON structures against standard JSON Schema definitions for autonomous decision verification.</p>
+        <div class="text-xs font-mono text-sky-400 pt-2">Cost: 1 micro-credit ($0.001 USD)</div>
+      </div>
+    </div>
+
+    <!-- Quickstart Config -->
+    <div class="space-y-4">
+      <h2 class="text-xl font-semibold text-white">Claude Desktop & Cursor MCP Config</h2>
+      <div class="code-box p-4 rounded-lg text-xs sm:text-sm font-mono text-gray-300 overflow-x-auto">
+<pre>{
+  "mcpServers": {
+    "bristlecone": {
+      "command": "python",
+      "args": ["/path/to/bristlecone-logic/mcp_server.py"],
+      "env": {
+        "BRISTLECONE_API_KEY": "bstk_your_api_key",
+        "BRISTLECONE_API_URL": "https://api.bristleconelogic.com"
+      }
+    }
+  }
+}</pre>
+      </div>
+    </div>
+
+    <!-- On-chain funding info -->
+    <div class="p-6 rounded-lg bg-gray-900/30 border border-gray-800 space-y-2">
+      <h3 class="text-sm font-semibold text-white uppercase tracking-wider">Settlement Architecture</h3>
+      <p class="text-xs text-gray-400 font-mono">
+        XRPL Receiver: <span class="text-gray-300">rNjtBUTFAj7iSRoeVqpJoedFra4SM929VD</span> (Routing via Tenant Destination Tag)
+      </p>
+    </div>
+  </main>
+
+  <footer class="pt-8 border-t border-gray-800 text-xs text-gray-500 flex justify-between items-center">
+    <span>&copy; 2026 Bristlecone Logic, LLC. All rights reserved.</span>
+    <span>Autonomous Agent Tooling Infrastructure</span>
+  </footer>
+
+</body>
+</html>
