@@ -7,12 +7,12 @@ import urllib.request
 import urllib.error
 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-HEALTH_URL = "https://api.bristleconelogic.com/api/v1/health"
+HEALTH_URL = "http://127.0.0.1:8000/api/v1/health"
 CHECK_INTERVAL_SECONDS = 30
+FAILURE_THRESHOLD = 2
 
 def send_discord_alert(title: str, description: str, color: int):
     if not DISCORD_WEBHOOK_URL:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Discord Webhook URL not set. Alert: {title} - {description}")
         return
 
     payload = {
@@ -28,53 +28,53 @@ def send_discord_alert(title: str, description: str, color: int):
     req = urllib.request.Request(
         DISCORD_WEBHOOK_URL,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "User-Agent": "BristleconeWatchdog/1.0"}
+        headers={"Content-Type": "application/json", "User-Agent": "BristleconeWatchdog/1.2"}
     )
     try:
         urllib.request.urlopen(req, timeout=10)
     except Exception as e:
         print(f"Failed to transmit Discord alert: {e}", file=sys.stderr)
 
-def check_gateway() -> bool:
+def check_gateway() -> tuple[bool, str]:
     try:
-        req = urllib.request.Request(HEALTH_URL, headers={"User-Agent": "BristleconeInternalWatchdog/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as response:
+        req = urllib.request.Request(HEALTH_URL, headers={"User-Agent": "BristleconeInternalWatchdog/1.2"})
+        with urllib.request.urlopen(req, timeout=8) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
-                return data.get("status") == "healthy"
-    except Exception:
-        return False
-    return False
+                if data.get("status") == "healthy":
+                    return True, "OK"
+                return False, f"Unexpected body payload: {data}"
+            return False, f"HTTP Status {response.status}"
+    except Exception as e:
+        return False, f"Exception: {type(e).__name__} - {e}"
 
 def main():
-    print(f"Bristlecone Sentinel Watchdog running. Polling {HEALTH_URL} every {CHECK_INTERVAL_SECONDS}s...")
-    
-    # Send startup confirmation to Discord
-    send_discord_alert(
-        title="🛡️ Bristlecone Sentinel Online",
-        description=f"Host watchdog active on `{socket.gethostname()}`. Polling `{HEALTH_URL}` every 30 seconds.",
-        color=3447003  # Blue
-    )
-
-    last_state_healthy = True
+    consecutive_failures = 0
+    is_currently_down = False
+    print(f"Bristlecone Sentinel Watchdog running against {HEALTH_URL}...")
 
     while True:
-        is_healthy = check_gateway()
+        healthy, reason = check_gateway()
 
-        if not is_healthy and last_state_healthy:
-            send_discord_alert(
-                title="🚨 Bristlecone API Gateway DOWN",
-                description=f"Healthcheck failed on `{HEALTH_URL}`.\nInvestigate via `docker compose ps` and `docker compose logs api`.",
-                color=15158332  # Red
-            )
-            last_state_healthy = False
-        elif is_healthy and not last_state_healthy:
-            send_discord_alert(
-                title="✅ Bristlecone API Gateway RECOVERED",
-                description=f"Endpoint `{HEALTH_URL}` is returning `200 OK` (status: healthy).",
-                color=3066993   # Green
-            )
-            last_state_healthy = True
+        if healthy:
+            if is_currently_down:
+                send_discord_alert(
+                    title="✅ Bristlecone API Gateway RECOVERED",
+                    description=f"Endpoint `{HEALTH_URL}` returned `200 OK` (status: healthy).",
+                    color=3066993  # Green
+                )
+                is_currently_down = False
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Healthcheck failed ({consecutive_failures}/{FAILURE_THRESHOLD}): {reason}")
+            if consecutive_failures >= FAILURE_THRESHOLD and not is_currently_down:
+                send_discord_alert(
+                    title="🚨 Bristlecone API Gateway DOWN",
+                    description=f"Healthcheck failed {consecutive_failures} consecutive times on `{HEALTH_URL}`.\n**Reason:** `{reason}`",
+                    color=15158332  # Red
+                )
+                is_currently_down = True
 
         time.sleep(CHECK_INTERVAL_SECONDS)
 
