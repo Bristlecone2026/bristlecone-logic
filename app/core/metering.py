@@ -18,11 +18,15 @@ async def create_api_key(tenant_name: str) -> dict:
     await redis_client.hset(f"apikey:{key_secret}", mapping=key_data)
     return {"api_key": key_secret, "tenant": tenant_name, "credits": DEFAULT_INITIAL_CREDITS}
 
-async def verify_metering(api_key: str = Security(API_KEY_HEADER)):
+async def verify_api_key(api_key: str = Security(API_KEY_HEADER)) -> dict:
+    """
+    Read-only credential verification.
+    Validates API key authenticity without decrementing credit balances.
+    """
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Pass 'X-API-Key' header or register at /api/v1/auth/register."
+            detail="Missing API key. Pass 'X-API-Key' header or register at /api/v1/auth/agent-register."
         )
 
     key_record = await redis_client.hgetall(f"apikey:{api_key}")
@@ -32,6 +36,15 @@ async def verify_metering(api_key: str = Security(API_KEY_HEADER)):
             detail="Invalid or suspended API key."
         )
 
+    return key_record
+
+async def verify_metering(api_key: str = Security(API_KEY_HEADER)) -> dict:
+    """
+    Metered verification for billable endpoints.
+    Validates key, checks credit availability, and decrements 1 credit.
+    """
+    key_record = await verify_api_key(api_key)
+
     current_credits = int(key_record.get("credits", 0))
     if current_credits <= 0:
         raise HTTPException(
@@ -39,5 +52,7 @@ async def verify_metering(api_key: str = Security(API_KEY_HEADER)):
             detail="Insufficient balance. Fund your API account with USDC on Base."
         )
 
-    await redis_client.hincrby(f"apikey:{api_key}", "credits", -1)
+    # Decrement 1 credit atomically
+    new_credits = await redis_client.hincrby(f"apikey:{api_key}", "credits", -1)
+    key_record["credits"] = str(new_credits)
     return key_record

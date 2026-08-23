@@ -7,7 +7,7 @@ from app.services.tools import (
     extract_web_content, WebExtractRequest, WebExtractResponse,
     validate_json_schema, SchemaValidateRequest, SchemaValidateResponse
 )
-from app.core.metering import verify_metering, create_api_key
+from app.core.metering import verify_metering, verify_api_key, create_api_key
 
 app = FastAPI(
     title="Bristlecone Logic M2M Gateway",
@@ -111,7 +111,8 @@ async def register_agent(req: RegisterRequest):
     return await create_api_key(req.tenant_name)
 
 @app.get("/api/v1/auth/balance")
-async def check_balance(auth: dict = Depends(verify_metering)):
+async def check_balance(auth: dict = Depends(verify_api_key)):
+    """Read-only balance check (zero credit cost)."""
     return {"tenant": auth.get("tenant"), "credits_remaining": auth.get("credits")}
 
 @app.post("/api/v1/tools/extract-web", response_model=WebExtractResponse)
