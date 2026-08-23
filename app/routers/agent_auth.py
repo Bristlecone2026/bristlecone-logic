@@ -14,6 +14,7 @@ from app.models.auth import Tenant, ApiKey
 router = APIRouter(prefix="/api/v1/auth", tags=["Autonomous M2M Auth"])
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+INITIAL_FREE_CREDITS = 50
 
 # On-chain Settlement Configuration
 RECEIVER_ADDRESS = "0x1B4309CFdbCEee7618a7fBDc5b145691F9246D67"
@@ -37,7 +38,8 @@ class AgentRegisterResponse(BaseModel):
     tenant_id: str
     agent_name: str
     api_key: str = Field(..., description="Copy this API key now. It cannot be retrieved again.")
-    credit_balance_usd: float = 0.00
+    credit_balance_usd: float = 0.10  # 50 free credits valued at $0.002/ea
+    credits_available: int = INITIAL_FREE_CREDITS
     deposit_instructions: DepositInstructions
 
 @router.post("/agent-register", response_model=AgentRegisterResponse, status_code=status.HTTP_201_CREATED)
@@ -47,8 +49,8 @@ async def register_autonomous_agent(
 ):
     """
     Autonomous registration endpoint for M2M AI agents.
-    Instantly provisions a tenant, generates a scoped API key,
-    and returns on-chain settlement details for autonomous funding.
+    Instantly provisions a tenant in Postgres, creates an API key hash,
+    and initializes Redis metering hashes for instant API execution.
     """
     tenant_id = uuid.uuid4()
     tenant_name = payload.agent_name.strip()
@@ -78,14 +80,22 @@ async def register_autonomous_agent(
 
     await db.commit()
 
-    # 3. Initialize Redis Balance & Fast Key Lookup Cache
+    # 3. Populate Redis Hash for instant gateway metering
     try:
         redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-        await redis_client.set(f"balance:{tenant_id}", "0.000000")
-        await redis_client.set(f"apikey:{key_hash}", str(tenant_id))
+        key_data = {
+            "tenant": tenant_name,
+            "tenant_id": str(tenant_id),
+            "credits": str(INITIAL_FREE_CREDITS),
+            "active": "1"
+        }
+        # Set raw API key hash for verify_metering middleware
+        await redis_client.hset(f"apikey:{raw_api_key}", mapping=key_data)
+        # Set tenant balance tracking for on-chain deposit worker
+        await redis_client.set(f"balance:{tenant_id}", "0.100000")
         await redis_client.aclose()
     except Exception:
-        pass  # Database persistence guarantees state
+        pass
 
     deposit_info = DepositInstructions(
         deposit_memo_identifier=str(tenant_id)
@@ -95,6 +105,7 @@ async def register_autonomous_agent(
         tenant_id=str(tenant_id),
         agent_name=tenant_name,
         api_key=raw_api_key,
-        credit_balance_usd=0.00,
+        credit_balance_usd=0.10,
+        credits_available=INITIAL_FREE_CREDITS,
         deposit_instructions=deposit_info
     )
