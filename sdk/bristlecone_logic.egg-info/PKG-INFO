@@ -1,0 +1,19 @@
+Metadata-Version: 2.4
+Name: bristlecone-logic
+Version: 0.2.0
+Summary: Deterministic microservices for autonomous agents.
+Author-email: Bristlecone Logic <support@bristleconelogic.com>
+Project-URL: Homepage, https://bristleconelogic.com
+Project-URL: API, https://api.bristleconelogic.com
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: httpx>=0.27.0
+
+# Bristlecone Logic SDK
+
+## Installation
+```bash
+pip install bristlecone-logic
+```

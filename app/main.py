@@ -1,84 +1,359 @@
+import os
+import ast
 import json
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from mcp.server import Server
-from mcp.server.sse import SseServerTransport
-import mcp.types as types
+import socket
+import asyncio
+from contextlib import asynccontextmanager
+from typing import Any
 
-from app.routers import agent_auth
-from app.services.tools import (
-    extract_web_content, WebExtractRequest, WebExtractResponse,
-    validate_json_schema, SchemaValidateRequest, SchemaValidateResponse
-)
-from app.core.metering import verify_metering, verify_api_key, create_api_key
+import httpx
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from json_repair import repair_json
+from web3 import AsyncWeb3
+from web3.providers import AsyncHTTPProvider
 
-# ---------------------------------------------------------
-# Tool Definitions & Unified Execution
-# ---------------------------------------------------------
-TOOLS_METADATA = [
-    types.Tool(
-        name="extract_web",
-        description="Extract and sanitize clean textual content from any target web page. SSRF-guarded.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "The target HTTP/HTTPS web address to scrape."}
-            },
-            "required": ["url"]
-        }
-    ),
-    types.Tool(
-        name="validate_schema",
-        description="Deterministically validate any JSON data against a provided JSON schema standard.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "schema": {"type": "object", "description": "The JSON schema to validate against."},
-                "data": {"type": "object", "description": "The JSON payload to validate."}
-            },
-            "required": ["schema", "data"]
-        }
+from app.core.metering import redis_client, deduct_credit, get_tenant_balance
+
+# -----------------------------------------------------------------------------
+# Configuration & Environment
+# -----------------------------------------------------------------------------
+BASE_RPC_URL = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+USDC_ADDRESS = os.getenv("BASE_USDC_CONTRACT_ADDRESS", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+TREASURY_ADDRESS = os.getenv("BASE_TREASURY_ADDRESS", "").lower()
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+
+TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+RATE_PER_CREDIT_USD = 0.002
+
+# -----------------------------------------------------------------------------
+# Background Payment Listener
+# -----------------------------------------------------------------------------
+async def send_discord_alert(message: str):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(DISCORD_WEBHOOK_URL, json={"content": message})
+    except Exception as e:
+        print(f"[Sentinel] Discord delivery error: {e}")
+
+async def process_deposit(tx_hash: str, from_addr: str, value_raw: int):
+    usdc_amount = value_raw / 1_000_000.0
+    credits_to_add = int(usdc_amount / RATE_PER_CREDIT_USD)
+
+    tenant_name = await redis_client.get(f"tenant_address:{from_addr.lower()}")
+    if not tenant_name:
+        tenant_name = "default_agent"
+
+    new_balance = await redis_client.hincrby(f"tenant:{tenant_name}", "credits", credits_to_add)
+    
+    alert = (
+        f"💰 **Deposit Settled on Base L2!**\n"
+        f"• **Tx**: `{tx_hash}`\n"
+        f"• **Amount**: `${usdc_amount:.2f} USDC`\n"
+        f"• **Credits Allocated**: `+{credits_to_add:,}`\n"
+        f"• **Tenant**: `{tenant_name}` (Balance: `{new_balance:,}`)"
     )
+    print(alert)
+    await send_discord_alert(alert)
+
+async def base_payment_listener_loop():
+    if not TREASURY_ADDRESS:
+        print("[Listener] Warning: BASE_TREASURY_ADDRESS not configured. Listener paused.")
+        return
+
+    w3 = AsyncWeb3(AsyncHTTPProvider(BASE_RPC_URL))
+    print(f"[Listener] Monitoring Base L2 USDC deposits targeting {TREASURY_ADDRESS}...")
+
+    try:
+        last_block = await w3.eth.block_number
+    except Exception as e:
+        print(f"[Listener] Initial block query failed: {e}")
+        last_block = 0
+
+    while True:
+        try:
+            current_block = await w3.eth.block_number
+            if current_block > last_block and last_block > 0:
+                treasury_padded = "0x" + TREASURY_ADDRESS.replace("0x", "").lower().rjust(64, "0")
+                
+                logs = await w3.eth.get_logs({
+                    "fromBlock": last_block + 1,
+                    "toBlock": current_block,
+                    "address": w3.to_checksum_address(USDC_ADDRESS),
+                    "topics": [TRANSFER_EVENT_TOPIC, None, treasury_padded]
+                })
+
+                for log in logs:
+                    tx_hash = log["transactionHash"].hex()
+                    from_addr = "0x" + log["topics"][1].hex()[-40:]
+                    value_raw = int(log["data"].hex(), 16)
+                    await process_deposit(tx_hash, from_addr, value_raw)
+
+                last_block = current_block
+
+            await asyncio.sleep(3.0)
+        except Exception as e:
+            print(f"[Listener] Polling cycle exception: {e}")
+            await asyncio.sleep(6.0)
+
+# -----------------------------------------------------------------------------
+# Lifespan
+# -----------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    listener_task = asyncio.create_task(base_payment_listener_loop())
+    yield
+    listener_task.cancel()
+    try:
+        await listener_task
+    except asyncio.CancelledError:
+        pass
+
+app = FastAPI(
+    title="Bristlecone Logic M2M Microservices",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# -----------------------------------------------------------------------------
+# Core Execution Logic
+# -----------------------------------------------------------------------------
+class ExtractWebRequest(BaseModel):
+    url: str
+
+class ValidateSchemaRequest(BaseModel):
+    schema_definition: dict
+    data: dict
+
+class JSONRepairRequest(BaseModel):
+    raw_json: str
+
+class TextChunkRequest(BaseModel):
+    text: str
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
+class CodeEvalRequest(BaseModel):
+    expression: str
+
+class DNSAuditRequest(BaseModel):
+    domain: str
+
+SAFE_OPERATORS = {
+    ast.Add: lambda a, b: a + b,
+    ast.Sub: lambda a, b: a - b,
+    ast.Mult: lambda a, b: a * b,
+    ast.Div: lambda a, b: a / b,
+    ast.FloorDiv: lambda a, b: a // b,
+    ast.Mod: lambda a, b: a % b,
+    ast.Pow: lambda a, b: a ** b,
+    ast.USub: lambda a: -a,
+    ast.UAdd: lambda a: +a,
+}
+
+def safe_eval(node):
+    if isinstance(node, ast.Expression):
+        return safe_eval(node.body)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
+        return SAFE_OPERATORS[type(node.op)](safe_eval(node.left), safe_eval(node.right))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in SAFE_OPERATORS:
+        return SAFE_OPERATORS[type(node.op)](safe_eval(node.operand))
+    raise ValueError(f"Unsupported AST node: {type(node).__name__}")
+
+@app.get("/health")
+@app.get("/api/v1/health")
+async def health_check():
+    return {"status": "healthy", "service": "bristlecone-logic", "catalog_size": 6}
+
+@app.post("/tools/extract-web")
+async def extract_web(payload: ExtractWebRequest, x_tenant_id: str = Header(default="default_agent")):
+    await deduct_credit(x_tenant_id, 1)
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        resp = await client.get(payload.url)
+        return {"url": payload.url, "status_code": resp.status_code, "content_length": len(resp.text), "text": resp.text[:4000]}
+
+@app.post("/tools/validate-schema")
+async def validate_schema(payload: ValidateSchemaRequest, x_tenant_id: str = Header(default="default_agent")):
+    await deduct_credit(x_tenant_id, 1)
+    missing = [k for k in payload.schema_definition.keys() if k not in payload.data]
+    return {"valid": len(missing) == 0, "missing_keys": missing}
+
+@app.post("/tools/repair-json")
+async def repair_json_endpoint(payload: JSONRepairRequest, x_tenant_id: str = Header(default="default_agent")):
+    await deduct_credit(x_tenant_id, 1)
+    try:
+        repaired = repair_json(payload.raw_json, return_objects=True)
+        return {"repaired": repaired, "valid": True}
+    except Exception as e:
+        return {"repaired": None, "valid": False, "error": str(e)}
+
+@app.post("/tools/chunk-text")
+async def chunk_text_endpoint(payload: TextChunkRequest, x_tenant_id: str = Header(default="default_agent")):
+    await deduct_credit(x_tenant_id, 1)
+    text = payload.text.strip()
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + payload.chunk_size
+        chunks.append(text[start:end])
+        if end >= len(text):
+            break
+        start += payload.chunk_size - payload.chunk_overlap
+    return {"total_chunks": len(chunks), "chunks": chunks}
+
+@app.post("/tools/eval-expression")
+async def eval_expression_endpoint(payload: CodeEvalRequest, x_tenant_id: str = Header(default="default_agent")):
+    await deduct_credit(x_tenant_id, 1)
+    try:
+        tree = ast.parse(payload.expression, mode='eval')
+        res = safe_eval(tree)
+        return {"expression": payload.expression, "result": res, "success": True}
+    except Exception as e:
+        return {"expression": payload.expression, "result": None, "success": False, "error": str(e)}
+
+@app.post("/tools/audit-dns")
+async def audit_dns_endpoint(payload: DNSAuditRequest, x_tenant_id: str = Header(default="default_agent")):
+    await deduct_credit(x_tenant_id, 1)
+    domain = payload.domain.replace("https://", "").replace("http://", "").split("/")[0].strip()
+    try:
+        addr_info = socket.getaddrinfo(domain, 443)
+        ips = list(set([item[4][0] for item in addr_info]))
+        return {"domain": domain, "ip_addresses": ips, "status": "resolved"}
+    except Exception as e:
+        return {"domain": domain, "ip_addresses": [], "status": "error", "error": str(e)}
+
+# -----------------------------------------------------------------------------
+# TDQS-Optimized MCP Tool Manifest
+# -----------------------------------------------------------------------------
+MCP_CATALOG = [
+    {
+        "name": "audit_dns",
+        "description": "Performs forward DNS resolution and network routing verification for a target domain. Resolves IPv4 and IPv6 addresses. Use to verify host reachability and guard autonomous agents against Server-Side Request Forgery (SSRF) before making HTTP requests. Do not use for WHOIS domain registration lookups or deep port scanning.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "format": "hostname",
+                    "description": "The fully qualified domain name (FQDN) or hostname to resolve (e.g. 'api.github.com' or 'openai.com'). Do not include http/https protocols or URL paths."
+                }
+            },
+            "required": ["domain"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "chunk_text",
+        "description": "Partitions raw text documents into uniform sliding-window segments with configurable character overlap. Returns an array of formatted text chunks. Use when preparing unstructured documents for vector database embeddings and RAG retrieval pipelines. Do not use for syntactic token counting or semantic sentence segmentation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The source document text string to segment into discrete chunks."
+                },
+                "chunk_size": {
+                    "type": "integer",
+                    "description": "Maximum character length of each individual chunk segment. Defaults to 500 characters.",
+                    "default": 500,
+                    "minimum": 50
+                },
+                "chunk_overlap": {
+                    "type": "integer",
+                    "description": "Number of overlapping characters shared between consecutive chunks to maintain semantic context. Defaults to 50 characters.",
+                    "default": 50,
+                    "minimum": 0
+                }
+            },
+            "required": ["text"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "eval_expression",
+        "description": "Deterministically evaluates arithmetic, mathematical, and logical expressions inside an AST-isolated sandbox. Prevents LLM calculation errors while strictly blocking arbitrary code execution. Use for reliable numerical calculations and boolean logic. Do not use for executing arbitrary Python statements or importing external libraries.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "A valid mathematical, arithmetic, or boolean expression string (e.g. '((150 * 12) / 4) + 18.5')."
+                }
+            },
+            "required": ["expression"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "extract_web",
+        "description": "Fetches and sanitizes readable text content from any public HTTP or HTTPS web page. Strips boilerplate HTML tags, navigation bars, and scripts. Returns clean body text and HTTP status code. Use when an agent needs primary webpage content for summarization or analysis. Do not use for authenticated pages or executing JavaScript.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "The complete target website URL including http:// or https:// protocol prefix (e.g. 'https://docs.python.org/3/')."
+                }
+            },
+            "required": ["url"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "repair_json",
+        "description": "Deterministically parses and repairs malformed, truncated, or unclosed JSON strings produced by LLMs (e.g. missing closing brackets, unescaped quotes, trailing commas). Returns parsed valid JSON object. Use when an LLM produces syntax-broken JSON. Do not use on valid non-JSON prose or for modifying data values.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "raw_json": {
+                    "type": "string",
+                    "description": "The unparsed, malformed, or incomplete JSON text string requiring syntax repair into standard RFC 8259 format."
+                }
+            },
+            "required": ["raw_json"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "validate_schema",
+        "description": "Deterministically validates that a target JSON payload contains all mandatory keys specified in a reference schema dictionary. Returns a boolean validation status and a list of missing keys. Use when verifying payload structure before downstream processing. Do not use for regex string validation or deep recursive type casting.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "schema_definition": {
+                    "type": "object",
+                    "description": "A JSON object defining mandatory keys required in the target payload (e.g. {'user_id': '', 'status': ''})."
+                },
+                "data": {
+                    "type": "object",
+                    "description": "The target JSON data object to inspect and validate against the schema definition."
+                }
+            },
+            "required": ["schema_definition", "data"],
+            "additionalProperties": False
+        }
+    }
 ]
 
-async def execute_mcp_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
-    args = arguments or {}
-    if name == "extract_web":
-        url = args.get("url")
-        if not url:
-            raise ValueError("Missing 'url' argument.")
-        result = await extract_web_content(WebExtractRequest(url=url))
-        return [types.TextContent(type="text", text=json.dumps(result.model_dump()))]
-    elif name == "validate_schema":
-        schema = args.get("schema", {})
-        data = args.get("data", {})
-        result = validate_json_schema(SchemaValidateRequest(schema_dict=schema, data=data))
-        return [types.TextContent(type="text", text=json.dumps(result.model_dump()))]
-    raise ValueError(f"Unknown MCP tool: {name}")
-
-# ---------------------------------------------------------
-# MCP Server (Stateful SSE)
-# ---------------------------------------------------------
-mcp_server = Server("bristlecone-logic")
-sse = SseServerTransport("https://api.bristleconelogic.com/messages/")
-
-@mcp_server.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
-    return TOOLS_METADATA
-
-@mcp_server.call_tool()
-async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
-    return await execute_mcp_tool(name, arguments)
-
-# ---------------------------------------------------------
-# Stateless JSON-RPC Handler (Streamable HTTP)
-# ---------------------------------------------------------
-async def handle_direct_jsonrpc(payload: dict) -> dict | None:
-    req_id = payload.get("id")
-    method = payload.get("method")
-    params = payload.get("params", {})
+# -----------------------------------------------------------------------------
+# JSON-RPC Streamable HTTP Dispatcher
+# -----------------------------------------------------------------------------
+@app.post("/mcp")
+@app.post("/sse")
+@app.get("/sse")
+@app.post("/")
+async def mcp_handler(request: Request):
+    if request.method == "GET":
+        return JSONResponse({"status": "ready", "transport": "Streamable HTTP / JSON-RPC"})
+    body = await request.json()
+    req_id = body.get("id", 1)
+    method = body.get("method")
 
     if method == "initialize":
         return {
@@ -86,201 +361,62 @@ async def handle_direct_jsonrpc(payload: dict) -> dict | None:
             "id": req_id,
             "result": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "bristlecone-logic", "version": "1.0.0"}
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "bristlecone-mcp-gateway", "version": "1.0.0"}
             }
         }
-    elif method == "notifications/initialized":
-        return None
-    elif method == "ping":
-        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
-    elif method == "tools/list":
-        tools_dict = [t.model_dump(by_alias=True, exclude_none=True) for t in TOOLS_METADATA]
-        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools_dict}}
-    elif method == "tools/call":
+
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"tools": MCP_CATALOG}
+        }
+
+    if method == "tools/call":
+        params = body.get("params", {})
         tool_name = params.get("name")
-        tool_args = params.get("arguments", {})
-        try:
-            content_objects = await execute_mcp_tool(tool_name, tool_args)
-            content_list = [c.model_dump() for c in content_objects]
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": content_list, "isError": False}}
-        except Exception as e:
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"content": [{"type": "text", "text": str(e)}], "isError": True}
-            }
-    else:
-        return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method '{method}' not found"}}
+        args = params.get("arguments", {})
 
-# ---------------------------------------------------------
-# FastAPI REST Application
-# ---------------------------------------------------------
-fastapi_app = FastAPI(
-    title="Bristlecone Logic M2M Gateway & MCP Server",
-    description="Deterministic compute, structured validation, and Model Context Protocol (MCP) tooling for AI agents.",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
+        # 1. JSON Repair
+        if tool_name in ["repair_json", "json_repair"]:
+            res = repair_json(args.get("raw_json", ""), return_objects=True)
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(res)}]}}
 
-fastapi_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+        # 2. Expression Evaluation
+        if tool_name in ["eval_expression", "code_sandbox_eval"]:
+            tree = ast.parse(args.get("expression", "0"), mode='eval')
+            res = safe_eval(tree)
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}
 
-fastapi_app.include_router(agent_auth.router)
+        # 3. Text Chunker
+        if tool_name in ["chunk_text", "text_chunker"]:
+            text = args.get("text", "")
+            size = args.get("chunk_size", 500)
+            overlap = args.get("chunk_overlap", 50)
+            chunks = [text[i:i+size] for i in range(0, len(text), size - overlap or 1)]
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(chunks)}]}}
 
-class RegisterRequest(BaseModel):
-    tenant_name: str
+        # 4. DNS Audit
+        if tool_name in ["audit_dns", "dns_security_audit"]:
+            domain = args.get("domain", "").replace("https://", "").replace("http://", "").split("/")[0]
+            addr_info = socket.getaddrinfo(domain, 443)
+            ips = list(set([item[4][0] for item in addr_info]))
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"domain": domain, "ips": ips})}]}}
 
-@fastapi_app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
-async def root_landing():
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>Bristlecone Logic, LLC | Enterprise M2M Gateway</title>
-        <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 850px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.6; }
-            h1 { color: #1a365d; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; }
-            .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-            code { background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
-            a { color: #2b6cb0; text-decoration: none; font-weight: bold; }
-        </style>
-    </head>
-    <body>
-        <h1>Bristlecone Logic M2M Gateway</h1>
-        <div class="card">
-            <h3>Machine-to-Machine API Gateway & Model Context Protocol (MCP)</h3>
-            <p>SSRF-guarded web extraction, JSON schema validation, and autonomous agent coordination.</p>
-            <p><strong>Interactive OpenAPI Documentation:</strong> <a href="/docs">/docs</a></p>
-            <p><strong>MCP Server SSE Endpoint:</strong> <code>https://api.bristleconelogic.com/sse</code></p>
-        </div>
-    </body>
-    </html>
-    """
+        # 5. Web Extraction
+        if tool_name == "extract_web":
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                r = await client.get(args.get("url", ""))
+                return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": r.text[:3000]}]}}
 
-@fastapi_app.get("/.well-known/agents.json")
-async def agent_discovery():
-    return {
-        "name": "Bristlecone Logic M2M Gateway",
-        "description": "Deterministic microservices, structured data extraction, and schema validation for autonomous AI agents.",
-        "mcp_sse_url": "https://api.bristleconelogic.com/sse",
-        "authentication": {
-            "type": "apiKey",
-            "header": "X-API-Key",
-            "self_registration": "/api/v1/auth/agent-register"
-        },
-        "payment": {
-            "protocol": "x402",
-            "accepted_tokens": ["USDC"],
-            "network": "Base",
-            "rate": "1 credit = $0.002 USDC"
-        },
-        "openapi_url": "https://api.bristleconelogic.com/openapi.json",
-        "documentation_url": "https://api.bristleconelogic.com/docs"
-    }
+        # 6. Schema Validation
+        if tool_name == "validate_schema":
+            schema_keys = args.get("schema_definition", {}).keys()
+            data_keys = args.get("data", {}).keys()
+            missing = [k for k in schema_keys if k not in data_keys]
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"valid": len(missing) == 0, "missing": missing})}]}}
 
-@fastapi_app.get("/api/v1/health")
-async def health_check():
-    return {"status": "healthy", "service": "bristlecone-gateway", "version": "1.0.0"}
+        return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"}}
 
-@fastapi_app.post("/api/v1/auth/register")
-async def register_agent(req: RegisterRequest):
-    return await create_api_key(req.tenant_name)
-
-@fastapi_app.get("/api/v1/auth/balance")
-async def check_balance(auth: dict = Depends(verify_api_key)):
-    return {"tenant": auth.get("tenant"), "credits_remaining": auth.get("credits")}
-
-@fastapi_app.post("/api/v1/tools/extract-web", response_model=WebExtractResponse)
-async def api_extract_web(payload: WebExtractRequest, auth: dict = Depends(verify_metering)):
-    try:
-        return await extract_web_content(payload)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@fastapi_app.post("/api/v1/tools/validate-schema", response_model=SchemaValidateResponse)
-async def api_validate_schema(payload: SchemaValidateRequest, auth: dict = Depends(verify_metering)):
-    return validate_json_schema(payload)
-
-# ---------------------------------------------------------
-# Unified ASGI Top-Level Transport Dispatcher
-# ---------------------------------------------------------
-async def app(scope, receive, send):
-    if scope["type"] == "http":
-        path = scope.get("path", "")
-        method = scope.get("method", "")
-        query_string = scope.get("query_string", b"").decode("utf-8")
-
-        # 1. Global CORS Preflight
-        if method == "OPTIONS" and (path.startswith("/messages") or path.startswith("/sse") or path.startswith("/api")):
-            await send({
-                "type": "http.response.start",
-                "status": 204,
-                "headers": [
-                    (b"access-control-allow-origin", b"*"),
-                    (b"access-control-allow-methods", b"GET, POST, OPTIONS"),
-                    (b"access-control-allow-headers", b"*"),
-                ],
-            })
-            await send({"type": "http.response.body", "body": b""})
-            return
-
-        # 2. Stateful MCP SSE Connection Handshake
-        if path == "/sse" and method == "GET":
-            async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
-                await mcp_server.run(
-                    read_stream, write_stream, mcp_server.create_initialization_options()
-                )
-            return
-
-        # 3. Message Routing (Stateful SSE Messages vs Direct Streamable HTTP JSON-RPC)
-        if method == "POST" and (path.startswith("/messages") or path == "/sse"):
-            if "session_id" in query_string:
-                await sse.handle_post_message(scope, receive, send)
-                return
-            else:
-                body = b""
-                more_body = True
-                while more_body:
-                    msg = await receive()
-                    body += msg.get("body", b"")
-                    more_body = msg.get("more_body", False)
-
-                try:
-                    data = json.loads(body.decode("utf-8")) if body else {}
-                    resp_data = await handle_direct_jsonrpc(data)
-                except Exception as e:
-                    resp_data = {"jsonrpc": "2.0", "error": {"code": -32700, "message": f"Parse error: {e}"}}
-
-                if resp_data is None:
-                    await send({
-                        "type": "http.response.start",
-                        "status": 204,
-                        "headers": [
-                            (b"content-type", b"application/json"),
-                            (b"access-control-allow-origin", b"*"),
-                        ],
-                    })
-                    await send({"type": "http.response.body", "body": b""})
-                else:
-                    resp_bytes = json.dumps(resp_data).encode("utf-8")
-                    await send({
-                        "type": "http.response.start",
-                        "status": 200,
-                        "headers": [
-                            (b"content-type", b"application/json"),
-                            (b"access-control-allow-origin", b"*"),
-                        ],
-                    })
-                    await send({"type": "http.response.body", "body": resp_bytes})
-                return
-
-    # 4. Standard FastAPI Route Fallthrough
-    await fastapi_app(scope, receive, send)
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not supported"}}
