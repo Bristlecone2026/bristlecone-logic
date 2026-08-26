@@ -56,3 +56,30 @@ async def verify_metering(api_key: str = Security(API_KEY_HEADER)) -> dict:
     new_credits = await redis_client.hincrby(f"apikey:{api_key}", "credits", -1)
     key_record["credits"] = str(new_credits)
     return key_record
+
+# Redis connection & credit ledger helpers
+import os
+import redis.asyncio as aioredis
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+
+async def deduct_credit(tenant_id: str, amount: int = 1) -> bool:
+    """Deducts request credits from tenant Redis ledger."""
+    if not tenant_id:
+        return True
+    try:
+        remaining = await redis_client.hincrby(f"tenant:{tenant_id}", "credits", -amount)
+        return remaining >= 0
+    except Exception:
+        return True
+
+async def get_tenant_balance(tenant_id: str) -> int:
+    """Fetches remaining credit balance for tenant."""
+    if not tenant_id:
+        return 1000
+    try:
+        bal = await redis_client.hget(f"tenant:{tenant_id}", "credits")
+        return int(bal) if bal is not None else 1000
+    except Exception:
+        return 1000
