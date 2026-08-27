@@ -1,75 +1,81 @@
+"""
+Bristlecone Logic™ - Official Python Client SDK
+Deterministic Guardrails & Machine-to-Machine Utilities for Autonomous Agents.
+"""
+
 import os
 from typing import Any, Dict, Optional
 import httpx
 
-DEFAULT_BASE_URL = "https://api.bristleconelogic.com"
-
 
 class BristleconeClient:
-    """Client for interacting with Bristlecone Logic™ micro-utilities and guardrails."""
+    """Synchronous & async client for consuming Bristlecone Logic deterministic micro-tools."""
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        timeout: float = 15.0,
+        api_key: Optional[str] = None,
+        tenant_id: str = "default_agent",
+        timeout: float = 10.0,
     ):
-        self.api_key = api_key or os.getenv("BRISTLECONE_API_KEY", "")
-        self.base_url = (base_url or os.getenv("BRISTLECONE_BASE_URL", DEFAULT_BASE_URL)).rstrip("/")
+        self.base_url = (
+            base_url
+            or os.getenv("BRISTLECONE_BASE_URL")
+            or "https://api.bristleconelogic.com"
+        ).rstrip("/")
+        self.api_key = api_key or os.getenv("BRISTLECONE_API_KEY")
+        self.tenant_id = tenant_id
         self.timeout = timeout
-        self._headers = {
-            "User-Agent": "bristlecone-python-sdk/0.3.0",
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {
             "Content-Type": "application/json",
+            "X-Tenant-Id": self.tenant_id,
         }
         if self.api_key:
-            self._headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
-    # Synchronous methods
-    def repair_json(self, json_str: str) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.timeout, headers=self._headers) as client:
-            res = client.post(f"{self.base_url}/repair_json", json={"json_str": json_str})
-            res.raise_for_status()
-            return res.json()
-
-    def eval_expression(self, expression: str) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.timeout, headers=self._headers) as client:
-            res = client.post(f"{self.base_url}/eval_expression", json={"expression": expression})
-            res.raise_for_status()
-            return res.json()
-
-    def audit_dns(self, hostname: str) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.timeout, headers=self._headers) as client:
-            res = client.post(f"{self.base_url}/audit_dns", json={"hostname": hostname})
+    def repair_json(self, raw_json: str) -> Dict[str, Any]:
+        """Sanitizes and repairs malformed/truncated JSON strings."""
+        with httpx.Client(timeout=self.timeout) as client:
+            res = client.post(
+                f"{self.base_url}/tools/repair-json",
+                json={"raw_json": raw_json},
+                headers=self._headers(),
+            )
             res.raise_for_status()
             return res.json()
 
     def validate_schema(self, data: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.timeout, headers=self._headers) as client:
-            res = client.post(f"{self.base_url}/validate_schema", json={"data": data, "schema": schema})
+        """Validates payload structures against JSON Schema definitions."""
+        with httpx.Client(timeout=self.timeout) as client:
+            res = client.post(
+                f"{self.base_url}/tools/validate-schema",
+                json={"data": data, "schema_definition": schema},
+                headers=self._headers(),
+            )
             res.raise_for_status()
             return res.json()
 
-    # Asynchronous methods
-    async def arepair_json(self, json_str: str) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers) as client:
-            res = await client.post(f"{self.base_url}/repair_json", json={"json_str": json_str})
+    def eval_expression(self, expression: str) -> Dict[str, Any]:
+        """Evaluates mathematical AST expressions safely in an isolated sandbox."""
+        with httpx.Client(timeout=self.timeout) as client:
+            res = client.post(
+                f"{self.base_url}/tools/eval-expression",
+                json={"expression": expression},
+                headers=self._headers(),
+            )
             res.raise_for_status()
             return res.json()
 
-    async def aeval_expression(self, expression: str) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers) as client:
-            res = await client.post(f"{self.base_url}/eval_expression", json={"expression": expression})
-            res.raise_for_status()
-            return res.json()
-
-    async def aaudit_dns(self, hostname: str) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers) as client:
-            res = await client.post(f"{self.base_url}/audit_dns", json={"hostname": hostname})
-            res.raise_for_status()
-            return res.json()
-
-    async def avalidate_schema(self, data: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers) as client:
-            res = await client.post(f"{self.base_url}/validate_schema", json={"data": data, "schema": schema})
+    def audit_dns(self, domain: str) -> Dict[str, Any]:
+        """Audits domain names against private subnets and SSRF risk vectors."""
+        with httpx.Client(timeout=self.timeout) as client:
+            res = client.post(
+                f"{self.base_url}/tools/audit-dns",
+                json={"domain": domain},
+                headers=self._headers(),
+            )
             res.raise_for_status()
             return res.json()

@@ -10,8 +10,8 @@ client = BristleconeClient()
 
 target_urls = [
     "https://example.com/data.txt",
-    "http://169.254.169.254/latest/meta-data/",  # Cloud metadata endpoint (unsafe)
-    "http://127.0.0.1:8000/internal-metrics",    # Local loopback (unsafe)
+    "http://169.254.169.254/latest/meta-data/",
+    "http://127.0.0.1:8000/internal-metrics",
 ]
 
 for url in target_urls:
@@ -19,8 +19,9 @@ for url in target_urls:
     hostname = parsed.hostname or url
 
     audit = client.audit_dns(hostname)
+    is_safe = audit.get("is_safe", audit.get("safe", False))
     
-    if not audit.get("is_safe", False):
-        print(f"[BLOCKED] SSRF Guardrail: Unsafe hostname rejected -> {hostname} ({audit.get('reason', 'Private/Forbidden IP')})")
+    if not is_safe:
+        print(f"[BLOCKED] SSRF Guardrail: Unsafe hostname rejected -> {hostname}")
     else:
         print(f"[PASSED] Domain verified safe -> {hostname}. Safe for agent scraping.")

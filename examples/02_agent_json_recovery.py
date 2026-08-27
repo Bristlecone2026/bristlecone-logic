@@ -8,7 +8,6 @@ from bristlecone_logic.client import BristleconeClient
 
 client = BristleconeClient()
 
-# Simulated malformed output from an LLM (unclosed quote and trailing bracket)
 raw_agent_response = """
 {
     "task": "summarize_findings",
@@ -18,14 +17,13 @@ raw_agent_response = """
 
 def safe_parse_agent_output(raw_text: str) -> dict:
     try:
-        # Attempt standard parse first
         return json.loads(raw_text)
     except Exception:
         print("[WARN] Standard JSON parser failed. Routing to Bristlecone Logic™ repair endpoint...")
         repair_result = client.repair_json(raw_text)
-        if repair_result.get("repaired"):
-            return repair_result["data"]
-        raise RuntimeError("Payload irreparable.")
+        if repair_result.get("repaired") or repair_result.get("success"):
+            return repair_result.get("data") or repair_result.get("parsed") or repair_result
+        raise RuntimeError(f"Payload irreparable: {repair_result}")
 
 data = safe_parse_agent_output(raw_agent_response)
 print("[PASSED] Payload successfully recovered:", data)
