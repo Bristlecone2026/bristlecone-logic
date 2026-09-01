@@ -420,3 +420,52 @@ async def mcp_handler(request: Request):
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"}}
 
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not supported"}}
+
+# ==============================================================================
+# Agentic Resource Discovery (ARD) Manifest
+# ==============================================================================
+@app.get("/.well-known/ai-resources.json", tags=["Discovery"], include_in_schema=False)
+@app.get("/.well-known/ai-catalog.json", tags=["Discovery"], include_in_schema=False)
+async def ai_catalog_manifest():
+    return {
+        "spec_version": "0.9",
+        "name": "Bristlecone Guard",
+        "description": "Deterministic runtime guardrails and M2M safety for autonomous agent pipelines.",
+        "provider": {
+            "name": "Bristlecone Logic LLC",
+            "url": "https://bristleconelogic.com"
+        },
+        "endpoints": [
+            {
+                "type": "mcp",
+                "transport": "sse",
+                "url": "https://bristleconelogic.com/mcp",
+                "tools": [
+                    {
+                        "name": "ssrf_guard",
+                        "description": "Pre-socket DNS resolution and private network CIDR filter."
+                    },
+                    {
+                        "name": "json_repair",
+                        "description": "Zero-overhead LLM payload syntax reconstructor."
+                    },
+                    {
+                        "name": "ast_math",
+                        "description": "Deterministic AST-sandboxed arithmetic evaluator."
+                    },
+                    {
+                        "name": "audit_dns",
+                        "description": "Domain DNS record extraction and IP resolution audit."
+                    },
+                    {
+                        "name": "extract_web",
+                        "description": "Sanitized server-side text extraction from target URLs."
+                    },
+                    {
+                        "name": "validate_schema",
+                        "description": "Key-level schema validation for agent input/output payloads."
+                    }
+                ]
+            }
+        ]
+    }
