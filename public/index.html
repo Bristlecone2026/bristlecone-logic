@@ -1,91 +1,243 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bristlecone Logic — Autonomous Utility Layer for AI Agents</title>
-  <meta name="description" content="Pay-per-request API utilities and Model Context Protocol (MCP) servers micro-settled via XRPL.">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { background-color: #0b0f19; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    .code-box { background-color: #030712; border: 1px solid #1f2937; }
-    .accent { color: #38bdf8; }
-    .border-accent { border-color: #1e293b; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bristlecone Guard | Runtime Security for Autonomous Agents</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        slate: {
+                            925: '#0b1019',
+                            950: '#070a0f',
+                        },
+                        cyan: {
+                            400: '#38bdf8',
+                            450: '#00e5ff',
+                            500: '#0ea5e9',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .circuit-glow {
+            box-shadow: 0 0 35px -5px rgba(0, 229, 255, 0.2);
+        }
+        .circuit-border {
+            border-color: rgba(0, 229, 255, 0.3);
+        }
+    </style>
 </head>
-<body class="min-h-screen flex flex-col justify-between p-6 sm:p-12 max-w-5xl mx-auto">
-  
-  <header class="flex justify-between items-center pb-8 border-b border-gray-800">
-    <div class="flex items-center space-x-3">
-      <div class="w-8 h-8 rounded bg-sky-500 flex items-center justify-center font-bold text-black text-lg">B</div>
-      <span class="text-xl font-bold tracking-tight text-white">Bristlecone Logic</span>
-    </div>
-    <div class="flex space-x-6 text-sm text-gray-400">
-      <a href="https://api.bristleconelogic.com/docs" class="hover:text-sky-400 transition">API Docs</a>
-      <a href="https://github.com/bristleconelogic" class="hover:text-sky-400 transition">GitHub</a>
-    </div>
-  </header>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-cyan-450 selection:text-slate-950 min-h-screen relative">
 
-  <main class="py-16 space-y-16">
-    <div class="space-y-6">
-      <div class="inline-flex items-center space-x-2 px-3 py-1 text-xs font-mono rounded-full bg-sky-950/60 border border-sky-800 text-sky-300">
-        <span>● Active on XRPL Mainnet</span>
-      </div>
-      <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white leading-tight">
-        Zero Subscriptions.<br>
-        <span class="text-sky-400">Micro-Settled Utilities</span> for AI Agents.
-      </h1>
-      <p class="text-lg text-gray-400 max-w-2xl leading-relaxed">
-        High-reliability endpoints built specifically for autonomous agents, Cursor, and Claude Desktop. Pay fractions of a cent per call using on-chain micropayments.
-      </p>
+    <!-- Persistent Centered Watermark (Remains Centered on Scroll) -->
+    <div class="fixed inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden">
+        <img src="/logo.png" alt="Bristlecone Logic" 
+             class="w-[1250px] max-w-[95vw] object-contain opacity-75 filter drop-shadow-[0_0_90px_rgba(0,229,255,0.3)] select-none">
+        <div class="absolute inset-0 bg-slate-950/40 backdrop-blur-[0.5px]"></div>
     </div>
 
-    <!-- Features / Pricing Table -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="p-6 rounded-lg bg-gray-900/50 border border-gray-800 space-y-3">
-        <h3 class="text-lg font-semibold text-white">bristlecone_extract_web</h3>
-        <p class="text-sm text-gray-400">Extracts clean, sanitized markdown/text from target web pages, stripping tracking scripts, ads, and boilerplate.</p>
-        <div class="text-xs font-mono text-sky-400 pt-2">Cost: 1 micro-credit ($0.001 USD)</div>
-      </div>
-      <div class="p-6 rounded-lg bg-gray-900/50 border border-gray-800 space-y-3">
-        <h3 class="text-lg font-semibold text-white">bristlecone_validate_schema</h3>
-        <p class="text-sm text-gray-400">Validates complex JSON structures against standard JSON Schema definitions for autonomous decision verification.</p>
-        <div class="text-xs font-mono text-sky-400 pt-2">Cost: 1 micro-credit ($0.001 USD)</div>
-      </div>
-    </div>
+    <!-- Content Container -->
+    <div class="relative z-10 flex flex-col justify-between min-h-screen">
 
-    <!-- Quickstart Config -->
-    <div class="space-y-4">
-      <h2 class="text-xl font-semibold text-white">Claude Desktop & Cursor MCP Config</h2>
-      <div class="code-box p-4 rounded-lg text-xs sm:text-sm font-mono text-gray-300 overflow-x-auto">
-<pre>{
-  "mcpServers": {
-    "bristlecone": {
-      "command": "python",
-      "args": ["/path/to/bristlecone-logic/mcp_server.py"],
-      "env": {
-        "BRISTLECONE_API_KEY": "bstk_your_api_key",
-        "BRISTLECONE_API_URL": "https://api.bristleconelogic.com"
-      }
-    }
-  }
-}</pre>
-      </div>
-    </div>
+        <!-- Navigation Header -->
+        <header class="border-b border-slate-800/80 backdrop-blur-md sticky top-0 z-50 bg-slate-950/85">
+            <div class="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
+                <div class="flex items-center gap-3.5">
+                    <img src="/icon.png" alt="Bristlecone Guard Emblem" class="h-11 w-11 object-contain rounded-lg filter drop-shadow-[0_0_10px_rgba(0,229,255,0.6)]" onerror="this.src='/logo.png'">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-extrabold tracking-wider text-white font-mono text-base block leading-none">BRISTLECONE <span class="text-cyan-400">GUARD</span></span>
+                            <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-400 font-bold">v1.0</span>
+                        </div>
+                        <span class="text-[10px] font-mono tracking-wider text-slate-400 block mt-1">by Bristlecone Logic, LLC</span>
+                    </div>
+                </div>
+                <nav class="flex items-center gap-6 text-sm text-slate-400">
+                    <a href="/docs" class="hover:text-cyan-400 font-mono text-xs transition">API Docs</a>
+                    <a href="https://github.com/huggingface/smolagents/pull/2749" target="_blank" class="text-xs font-mono px-3 py-1.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:border-cyan-500/50 hover:text-cyan-400 transition">PR #2749 Verified</a>
+                </nav>
+            </div>
+        </header>
 
-    <!-- On-chain funding info -->
-    <div class="p-6 rounded-lg bg-gray-900/30 border border-gray-800 space-y-2">
-      <h3 class="text-sm font-semibold text-white uppercase tracking-wider">Settlement Architecture</h3>
-      <p class="text-xs text-gray-400 font-mono">
-        XRPL Receiver: <span class="text-gray-300">rNjtBUTFAj7iSRoeVqpJoedFra4SM929VD</span> (Routing via Tenant Destination Tag)
-      </p>
-    </div>
-  </main>
+        <main>
+            <!-- Hero Section -->
+            <section class="max-w-6xl mx-auto px-6 pt-20 pb-16 grid lg:grid-cols-12 gap-12 items-center">
+                <div class="lg:col-span-7 space-y-6 text-center lg:text-left">
+                    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-mono backdrop-blur-sm">
+                        <span class="inline-block w-2 h-2 rounded-full bg-cyan-450 animate-pulse shadow-[0_0_8px_#00e5ff]"></span>
+                        Deterministic Pre-Flight Agent Defense
+                    </div>
+                    <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
+                        Hardened Runtime Guardrails for <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Autonomous LLM Agents</span>
+                    </h1>
+                    <p class="text-base sm:text-lg text-slate-300 leading-relaxed max-w-2xl mx-auto lg:mx-0 drop-shadow-sm">
+                        Zero-dependency protection against RFC 1918 internal network pivots, cloud instance metadata exfiltration, and unsafe AST code evaluation. Engineered for production LangChain, smolagents, and Model Context Protocol pipelines.
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-4 pt-2 justify-center lg:justify-start">
+                        <a href="#pricing" class="px-6 py-3 rounded-lg bg-cyan-450 hover:bg-cyan-400 text-slate-950 font-bold text-sm transition text-center shadow-[0_0_25px_-3px_rgba(0,229,255,0.5)]">
+                            Get API Credentials
+                        </a>
+                        <div class="flex items-center bg-slate-900/90 border border-slate-800 rounded-lg px-4 py-3 font-mono text-xs text-slate-300 backdrop-blur-sm">
+                            <span class="text-cyan-400 mr-2">$</span>
+                            <code>pip install bristlecone-guard</code>
+                        </div>
+                    </div>
+                </div>
 
-  <footer class="pt-8 border-t border-gray-800 text-xs text-gray-500 flex justify-between items-center">
-    <span>&copy; 2026 Bristlecone Logic, LLC. All rights reserved.</span>
-    <span>Autonomous Agent Tooling Infrastructure</span>
-  </footer>
+                <!-- Terminal Audit Card -->
+                <div class="lg:col-span-5 bg-slate-925/90 border border-slate-800/90 circuit-glow rounded-xl overflow-hidden shadow-2xl font-mono text-xs text-left backdrop-blur-md">
+                    <div class="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                        <div class="flex gap-1.5">
+                            <div class="w-3 h-3 rounded-full bg-slate-800"></div>
+                            <div class="w-3 h-3 rounded-full bg-slate-800"></div>
+                            <div class="w-3 h-3 rounded-full bg-slate-800"></div>
+                        </div>
+                        <span class="text-slate-500 text-[11px]">runtime_ssrf_audit.log</span>
+                    </div>
+                    <div class="p-5 space-y-3">
+                        <p class="text-slate-400"><span class="text-slate-600">[00:01.04]</span> Executing tool: <span class="text-cyan-400">VisitWebpageTool</span></p>
+                        <p class="text-slate-400"><span class="text-slate-600">[00:01.05]</span> Query target: <code class="text-slate-300">http://169.254.169.254/latest/meta-data</code></p>
+                        <div class="p-3 bg-red-950/40 border border-red-900/60 rounded text-red-300 space-y-1">
+                            <p class="font-bold text-red-400">✖ [BLOCKED] Target Inaccessible</p>
+                            <p class="text-[11px] text-red-400/90 leading-tight">SSRF Protection: Refusing to resolve link-local cloud metadata IP. Network socket aborted.</p>
+                        </div>
+                        <p class="text-cyan-400/90"><span class="text-slate-600">[00:01.06]</span> Audit event signed and transmitted to MCP host.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Architectural Primitives -->
+            <section id="features" class="max-w-6xl mx-auto px-6 py-20 border-t border-slate-900/80">
+                <div class="text-center max-w-2xl mx-auto mb-14">
+                    <h2 class="text-xs font-mono uppercase tracking-widest text-cyan-400 mb-2">Core Primitives</h2>
+                    <p class="text-2xl sm:text-3xl font-bold text-white">Engineered for Microsecond-Scale Verification</p>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-6">
+                    <div class="p-6 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-cyan-500/40 transition backdrop-blur-sm">
+                        <div class="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center font-mono font-bold text-cyan-400 mb-4">01</div>
+                        <h3 class="font-bold text-white mb-2">Pre-Flight SSRF Guard</h3>
+                        <p class="text-sm text-slate-400 leading-relaxed">
+                            Deterministic socket address verification. Halts agent execution prior to socket creation if DNS resolves to private RFC 1918 subnets, loopback, or cloud IMDS endpoints.
+                        </p>
+                    </div>
+
+                    <div class="p-6 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-cyan-500/40 transition backdrop-blur-sm">
+                        <div class="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center font-mono font-bold text-cyan-400 mb-4">02</div>
+                        <h3 class="font-bold text-white mb-2">AST Sandbox Inspection</h3>
+                        <p class="text-sm text-slate-400 leading-relaxed">
+                            Evaluates dynamically synthesized Python AST nodes. Forbids unauthorized built-ins, subshell spawns, and namespace tampering before the interpreter executes.
+                        </p>
+                    </div>
+
+                    <div class="p-6 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-cyan-500/40 transition backdrop-blur-sm">
+                        <div class="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center font-mono font-bold text-cyan-400 mb-4">03</div>
+                        <h3 class="font-bold text-white mb-2">Deterministic JSON Sanitizer</h3>
+                        <p class="text-sm text-slate-400 leading-relaxed">
+                            Fast single-pass heuristic parser to restore truncated brackets, escape illegal control characters, and eliminate pipeline halting without redundant LLM retries.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pricing Tiers -->
+            <section id="pricing" class="max-w-6xl mx-auto px-6 py-20 border-t border-slate-900/80">
+                <div class="text-center max-w-2xl mx-auto mb-14">
+                    <h2 class="text-xs font-mono uppercase tracking-widest text-cyan-400 mb-2">Access & Licensing</h2>
+                    <p class="text-2xl sm:text-3xl font-bold text-white">Dual-Rail Infrastructure</p>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-8">
+                    <!-- Developer Tier -->
+                    <div class="p-8 rounded-xl bg-slate-900/50 border border-slate-800/90 flex flex-col justify-between backdrop-blur-sm">
+                        <div class="space-y-4">
+                            <h3 class="font-mono font-bold text-white text-base">Developer</h3>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-4xl font-extrabold text-white">$29</span>
+                                <span class="text-slate-400 text-sm">/ mo</span>
+                            </div>
+                            <p class="text-xs text-slate-400">Standard runtime security for independent builders and single-agent microservices.</p>
+                            <ul class="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800/80 font-mono">
+                                <li><span class="text-cyan-400">✓</span> 100k guarded calls / mo</li>
+                                <li><span class="text-cyan-400">✓</span> SSRF Pre-Flight DNS Engine</li>
+                                <li><span class="text-cyan-400">✓</span> Model Context Protocol Server</li>
+                                <li><span class="text-cyan-400">✓</span> Standard API authentication</li>
+                            </ul>
+                        </div>
+                        <a href="/docs" class="mt-8 block w-full py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-center font-mono text-xs font-semibold transition border border-slate-700">
+                            Subscribe ($29/mo)
+                        </a>
+                    </div>
+
+                    <!-- Production Team Tier -->
+                    <div class="p-8 rounded-xl bg-slate-900/95 border-2 circuit-border circuit-glow flex flex-col justify-between relative shadow-2xl backdrop-blur-md">
+                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-cyan-450 text-slate-950 font-mono text-[10px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider">
+                            Production
+                        </div>
+                        <div class="space-y-4">
+                            <h3 class="font-mono font-bold text-white text-base">Engineering Team</h3>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-4xl font-extrabold text-white">$99</span>
+                                <span class="text-slate-400 text-sm">/ mo</span>
+                            </div>
+                            <p class="text-xs text-slate-400">Full guardrail suite for multi-agent swarms, CI/CD runners, and enterprise agents.</p>
+                            <ul class="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800 font-mono">
+                                <li><span class="text-cyan-400">✓</span> 1M guarded calls / mo</li>
+                                <li><span class="text-cyan-400">✓</span> Full AST & Code Execution Guard</li>
+                                <li><span class="text-cyan-400">✓</span> Real-time audit stream & webhook alerts</li>
+                                <li><span class="text-cyan-400">✓</span> Multi-token team provisioning</li>
+                            </ul>
+                        </div>
+                        <a href="#" class="mt-8 block w-full py-2.5 px-4 rounded-lg bg-cyan-450 hover:bg-cyan-400 text-slate-950 text-center font-mono text-xs font-bold transition">
+                            Subscribe ($99/mo)
+                        </a>
+                    </div>
+
+                    <!-- Autonomous M2M Tier -->
+                    <div class="p-8 rounded-xl bg-slate-900/50 border border-slate-800/90 flex flex-col justify-between backdrop-blur-sm">
+                        <div class="space-y-4">
+                            <h3 class="font-mono font-bold text-white text-base">Machine-to-Machine</h3>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-4xl font-extrabold text-white">x402</span>
+                                <span class="text-slate-400 text-sm">/ per-call</span>
+                            </div>
+                            <p class="text-xs text-slate-400">Frictionless cryptographic micropayments for autonomous agents operating without human cards.</p>
+                            <ul class="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800/80 font-mono">
+                                <li><span class="text-cyan-400">✓</span> Zero account or subscription required</li>
+                                <li><span class="text-cyan-400">✓</span> HTTP 402 micro-settlement</li>
+                                <li><span class="text-cyan-400">✓</span> Native on-chain validation</li>
+                                <li><span class="text-cyan-400">✓</span> Millisecond cryptographic authorization</li>
+                            </ul>
+                        </div>
+                        <a href="/docs" class="mt-8 block w-full py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-center font-mono text-xs font-semibold transition border border-slate-700">
+                            View Protocol Spec
+                        </a>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="border-t border-slate-900 py-10 text-center text-xs text-slate-500 font-mono">
+            <p>© 2026 BRISTLECONE LOGIC, LLC. ALL RIGHTS RESERVED.</p>
+            <p class="mt-1">Bristlecone Guard is an autonomous runtime verification system.</p>
+        </footer>
+
+    </div>
 
 </body>
 </html>

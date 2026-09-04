@@ -40,3 +40,7 @@ Automated, offline-verified, institutional-grade M2M sweeper daemon for Bristlec
    * Set `DRY_RUN_MODE = False` in `sweeper_daemon.py`
    * Restart service: `systemctl restart bristlecone-sweeper`
    * Check live status: `systemctl status bristlecone-sweeper`
+
+---
+
+<sub>Bristlecone Logic™ is a trademark of Bristlecone Logic LLC. All rights reserved. Zero-trust deterministic execution and agent verification architecture.</sub>
