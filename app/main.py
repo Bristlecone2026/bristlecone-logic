@@ -1,3 +1,4 @@
+from app.middleware.m2m_payment import M2MPaymentMiddleware
 import os
 import ast
 import json
@@ -48,6 +49,7 @@ async def process_deposit(tx_hash: str, from_addr: str, value_raw: int):
         tenant_name = "default_agent"
 
     new_balance = await redis_client.hincrby(f"tenant:{tenant_name}", "credits", credits_to_add)
+    await redis_client.set(f"tx_confirmed:{tx_hash.lower()}", "1", ex=86400)
     
     alert = (
         f"💰 **Deposit Settled on Base L2!**\n"
@@ -117,6 +119,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+app.add_middleware(M2MPaymentMiddleware)
 
 # -----------------------------------------------------------------------------
 # Core Execution Logic
@@ -429,6 +433,12 @@ async def mcp_handler(request: Request):
 async def ai_catalog_manifest():
     return {
         "spec_version": "0.9",
+        "payment": {
+            "protocol": "x402",
+            "network": "eip155:8453",
+            "currency": "USDC",
+            "payee": "0xa17c8c3005698bc4ea6406a00387445e1d30c35f"
+        },
         "name": "Bristlecone Guard",
         "description": "Deterministic runtime guardrails and M2M safety for autonomous agent pipelines.",
         "provider": {
