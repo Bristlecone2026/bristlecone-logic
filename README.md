@@ -1,46 +1,68 @@
-mcp-name: io.github.Bristlecone2026/bristlecone-logic
+# Bristlecone Guard
 
-<!-- mcp-name: io.github.Bristlecone2026/bristlecone-logic -->
+Deterministic runtime guardrails and M2M (machine-to-machine) safety primitives for autonomous AI agent pipelines.
 
-# Bristlecone Logic LLC — M2M Base USDC Sweeper Bot
-
-## System Overview
-Automated, offline-verified, institutional-grade M2M sweeper daemon for Bristlecone Logic LLC running on Base L2 (`chain_id: 8453`). The daemon monitors native Base USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`), verifies native ETH gas reserves, constructs EIP-1559 contract call payloads, and routes signatures through AWS KMS HSM (`us-west-2`).
-
-## Architecture & File Structure
-
-* **`/opt/bristlecone/bristlecone-logic/.env`**
-  Environment variables containing `AWS_KMS_KEY_ID`, `AWS_REGION`, and `SWEEP_DESTINATION_ADDRESS`.
-
-* **`/opt/bristlecone/bristlecone-logic/kms_signer.py`**
-  Offline EIP-1559 transaction constructor and AWS KMS signing engine. Handles DER ASN.1 signature parsing, Low-S canonicalization (EIP-2), and SECP256K1 public key recovery byte ($v$) calculation.
-
-* **`/opt/bristlecone/bristlecone-logic/sweeper_daemon.py`**
-  Main polling loop. Queries Base RPC endpoints, checks USDC balance (`0x70a08231`), monitors ETH gas reserves, encodes ERC-20 `transfer()` data payloads (`0xa9059cbb`), and executes dry-run or live transaction broadcasts.
-
-* **`/etc/systemd/system/bristlecone-sweeper.service`**
-  Linux background service unit managing the daemon process with automatic restart logic (`Restart=always`, `RestartSec=10`) and logging.
-
-## Core Operational Parameters
-
-| Key | Value | Description |
-| :--- | :--- | :--- |
-| **AWS Region** | `us-west-2` | KMS HSM physical region |
-| **Network** | Base Mainnet (`8453`) | Primary Layer 2 execution environment |
-| **Target Token** | Base USDC (`0x8335...2913`) | 1:1 USD revenue token |
-| **Service Status** | Active (Running) | Managed by systemd |
-| **Safety State** | `DRY_RUN_MODE = True` | Constructs & signs offline; no live network broadcasts |
-
-## Post-Travel Production Launch Checklist
-
-1. **Exchange Onboarding**: Complete Coinbase Business setup for Bristlecone Logic LLC and link to Mercury checking account.
-2. **Fund Gas Reservoir**: Deposit $3.00–$5.00 of native ETH on Base to operational hot wallet for L2 execution fees.
-3. **Configure Treasury Vault**: Update `SWEEP_DESTINATION_ADDRESS` in `.env` with corporate Coinbase Business deposit address.
-4. **Arm Live Mode**:
-   * Set `DRY_RUN_MODE = False` in `sweeper_daemon.py`
-   * Restart service: `systemctl restart bristlecone-sweeper`
-   * Check live status: `systemctl status bristlecone-sweeper`
+Exposes high-speed validation, AST evaluation, schema enforcement, and web/DNS auditing tools via standard HTTP and the Anthropic Model Context Protocol (MCP).
 
 ---
 
-<sub>Bristlecone Logic™ is a trademark of Bristlecone Logic LLC. All rights reserved. Zero-trust deterministic execution and agent verification architecture.</sub>
+## Tools
+
+* **audit_dns**: Forward DNS resolution and network routing verification. Guards against Server-Side Request Forgery (SSRF).
+* **chunk_text**: Sliding-window text segmentation with configurable overlap for RAG ingestion.
+* **eval_expression**: Deterministic mathematical and boolean expression evaluation inside an isolated AST sandbox.
+* **extract_web**: Sanitized server-side text extraction from public web pages.
+* **repair_json**: Syntax repair for broken, malformed, or unclosed JSON strings produced by LLMs.
+* **validate_schema**: Strict key-level schema validation for agent input/output payloads.
+
+---
+
+## Public Endpoints
+
+* **Base URL**: https://bristleconelogic.com
+* **MCP Transport (SSE)**: https://bristleconelogic.com/mcp
+* **Agentic Discovery Catalog**: https://bristleconelogic.com/.well-known/ai-catalog.json
+* **Resource Manifest**: https://bristleconelogic.com/.well-known/ai-resources.json
+* **API Documentation**: https://bristleconelogic.com/docs
+
+---
+
+## Connecting to Claude Desktop / MCP Clients
+
+Add the following to your claude_desktop_config.json:
+
+{
+  "mcpServers": {
+    "bristlecone-guard": {
+      "url": "https://bristleconelogic.com/mcp"
+    }
+  }
+}
+
+For authenticated or metered tenant access:
+
+{
+  "mcpServers": {
+    "bristlecone-guard": {
+      "url": "https://bristleconelogic.com/mcp",
+      "headers": {
+        "Authorization": "Bearer bl_live_YOUR_API_KEY"
+      }
+    }
+  }
+}
+
+---
+
+## Autonomous M2M Settlement
+
+* **Protocol**: x402 (HTTP 402 Payment Required)
+* **Network**: Base L2 (eip155:8453)
+* **Asset**: USDC
+* **Payee Contract / Treasury**: 0xa17c8c3005698bc4ea6406a00387445e1d30c35f
+
+---
+
+## License
+
+Apache-2.0
