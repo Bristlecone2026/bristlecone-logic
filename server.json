@@ -1,29 +1,63 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.Bristlecone2026/bristlecone-logic",
-  "description": "Micro-settled web content extraction and JSON schema validation utilities for AI agents via XRPL.",
-  "version": "0.1.2",
-  "repository": {
-    "url": "https://github.com/Bristlecone2026/bristlecone-logic",
-    "source": "github"
+  "$schema": "https://modelcontextprotocol.io/schema/server.json",
+  "name": "bristlecone-guard",
+  "displayName": "Bristlecone Guard",
+  "description": "Deterministic runtime guardrails and M2M safety primitives for autonomous agent pipelines.",
+  "version": "1.0.0",
+  "publisher": {
+    "name": "Bristlecone Logic LLC",
+    "url": "https://bristleconelogic.com",
+    "contact": "support@bristleconelogic.com"
   },
-  "packages": [
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bristleconelogic/bristlecone-guard"
+  },
+  "homepage": "https://bristleconelogic.com",
+  "license": "Apache-2.0",
+  "transport": {
+    "type": "sse",
+    "url": "https://bristleconelogic.com/mcp",
+    "messageUrl": "https://bristleconelogic.com/mcp"
+  },
+  "payment": {
+    "protocol": "x402",
+    "network": "eip155:8453",
+    "currency": "USDC",
+    "payee": "0xa17c8c3005698bc4ea6406a00387445e1d30c35f"
+  },
+  "tools": [
     {
-      "registryType": "pypi",
-      "identifier": "bristlecone-mcp",
-      "version": "0.1.2",
-      "transport": {
-        "type": "stdio"
-      }
+      "name": "audit_dns",
+      "description": "Performs forward DNS resolution and network routing verification for a target domain. Guards against Server-Side Request Forgery (SSRF)."
+    },
+    {
+      "name": "chunk_text",
+      "description": "Partitions raw text documents into uniform sliding-window segments with configurable character overlap for vector databases."
+    },
+    {
+      "name": "eval_expression",
+      "description": "Deterministically evaluates arithmetic, mathematical, and logical expressions inside an AST-isolated sandbox."
+    },
+    {
+      "name": "extract_web",
+      "description": "Fetches and sanitizes readable text content from public HTTP/HTTPS web pages, stripping boilerplate HTML."
+    },
+    {
+      "name": "repair_json",
+      "description": "Deterministically parses and repairs malformed, truncated, or unclosed JSON strings produced by LLMs."
+    },
+    {
+      "name": "validate_schema",
+      "description": "Deterministically validates that a target JSON payload contains all mandatory keys specified in a reference schema."
     }
   ],
-  "environment_variables": [
-    {
-      "name": "BRISTLECONE_API_KEY",
-      "description": "Bristlecone Logic API key for micro-transaction settlement",
-      "is_required": true,
-      "is_secret": true,
-      "format": "string"
-    }
+  "tags": [
+    "security",
+    "guardrails",
+    "validation",
+    "m2m",
+    "web3-payments",
+    "tools"
   ]
 }

@@ -16,6 +16,7 @@ from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider
 
 from app.core.metering import redis_client, deduct_credit, get_tenant_balance
+from app.api.v1.admin import router as admin_router
 
 # -----------------------------------------------------------------------------
 # Configuration & Environment
@@ -41,6 +42,11 @@ async def send_discord_alert(message: str):
         print(f"[Sentinel] Discord delivery error: {e}")
 
 async def process_deposit(tx_hash: str, from_addr: str, value_raw: int):
+    # Idempotency check: prevent duplicate credit allocation
+    if await redis_client.get(f"tx_confirmed:{tx_hash.lower()}"):
+        print(f"[Listener] Skipped duplicate transaction: {tx_hash}")
+        return
+
     usdc_amount = value_raw / 1_000_000.0
     credits_to_add = int(usdc_amount / RATE_PER_CREDIT_USD)
 
@@ -48,8 +54,10 @@ async def process_deposit(tx_hash: str, from_addr: str, value_raw: int):
     if not tenant_name:
         tenant_name = "default_agent"
 
+    # Synchronize both tenant hash and direct balance keys
     new_balance = await redis_client.hincrby(f"tenant:{tenant_name}", "credits", credits_to_add)
-    await redis_client.set(f"tx_confirmed:{tx_hash.lower()}", "1", ex=86400)
+    await redis_client.incrby(f"balance:{tenant_name}", credits_to_add)
+    await redis_client.set(f"tx_confirmed:{tx_hash.lower()}", "1", ex=604800)
     
     alert = (
         f"💰 **Deposit Settled on Base L2!**\n"
@@ -119,6 +127,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+app.include_router(admin_router, prefix="/api/v1")
 
 app.add_middleware(M2MPaymentMiddleware)
 
@@ -428,8 +438,8 @@ async def mcp_handler(request: Request):
 # ==============================================================================
 # Agentic Resource Discovery (ARD) Manifest
 # ==============================================================================
-@app.get("/.well-known/ai-resources.json", tags=["Discovery"], include_in_schema=False)
-@app.get("/.well-known/ai-catalog.json", tags=["Discovery"], include_in_schema=False)
+@app.api_route("/.well-known/ai-resources.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
+@app.api_route("/.well-known/ai-catalog.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
 async def ai_catalog_manifest():
     return {
         "spec_version": "0.9",
