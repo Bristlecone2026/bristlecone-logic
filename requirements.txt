@@ -73,7 +73,7 @@ pyarrow==25.0.1
 pycparser==3.0
 pycryptodome==3.23.0
 pydantic==2.7.4
-pydantic-settings==2.3.4
+pydantic-settings==2.15.0
 pydantic_core==2.18.4
 pydeck==0.9.3
 Pygments==2.21.0
