@@ -251,6 +251,12 @@ MCP_CATALOG = [
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
+        "annotations": {
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "destructiveHint": False,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -279,6 +285,12 @@ MCP_CATALOG = [
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
+        "annotations": {
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "destructiveHint": False,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -317,6 +329,12 @@ MCP_CATALOG = [
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
+        "annotations": {
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "destructiveHint": False,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -344,6 +362,12 @@ MCP_CATALOG = [
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
+        "annotations": {
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "destructiveHint": False,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -372,6 +396,12 @@ MCP_CATALOG = [
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
+        "annotations": {
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "destructiveHint": False,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -398,6 +428,12 @@ MCP_CATALOG = [
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
+        "annotations": {
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "destructiveHint": False,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
