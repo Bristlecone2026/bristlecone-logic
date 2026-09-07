@@ -248,6 +248,10 @@ MCP_CATALOG = [
     {
         "name": "audit_dns",
         "description": "Performs forward DNS resolution and network routing verification for a target domain. Resolves IPv4 and IPv6 addresses. Use to verify host reachability and guard autonomous agents against Server-Side Request Forgery (SSRF) before making HTTP requests. Do not use for WHOIS domain registration lookups or deep port scanning.",
+        "annotations": {
+            "readOnlyHint": True,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -259,11 +263,24 @@ MCP_CATALOG = [
             },
             "required": ["domain"],
             "additionalProperties": False
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "ip_addresses": {"type": "array", "items": {"type": "string"}},
+                "status": {"type": "string"}
+            },
+            "required": ["domain", "ip_addresses", "status"]
         }
     },
     {
         "name": "chunk_text",
         "description": "Partitions raw text documents into uniform sliding-window segments with configurable character overlap. Returns an array of formatted text chunks. Use when preparing unstructured documents for vector database embeddings and RAG retrieval pipelines. Do not use for syntactic token counting or semantic sentence segmentation.",
+        "annotations": {
+            "readOnlyHint": True,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -286,11 +303,23 @@ MCP_CATALOG = [
             },
             "required": ["text"],
             "additionalProperties": False
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "total_chunks": {"type": "integer"},
+                "chunks": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["total_chunks", "chunks"]
         }
     },
     {
         "name": "eval_expression",
         "description": "Deterministically evaluates arithmetic, mathematical, and logical expressions inside an AST-isolated sandbox. Prevents LLM calculation errors while strictly blocking arbitrary code execution. Use for reliable numerical calculations and boolean logic. Do not use for executing arbitrary Python statements or importing external libraries.",
+        "annotations": {
+            "readOnlyHint": True,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -301,11 +330,24 @@ MCP_CATALOG = [
             },
             "required": ["expression"],
             "additionalProperties": False
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "expression": {"type": "string"},
+                "result": {"type": ["number", "boolean", "null"]},
+                "success": {"type": "boolean"}
+            },
+            "required": ["expression", "result", "success"]
         }
     },
     {
         "name": "extract_web",
         "description": "Fetches and sanitizes readable text content from any public HTTP or HTTPS web page. Strips boilerplate HTML tags, navigation bars, and scripts. Returns clean body text and HTTP status code. Use when an agent needs primary webpage content for summarization or analysis. Do not use for authenticated pages or executing JavaScript.",
+        "annotations": {
+            "readOnlyHint": True,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -317,11 +359,24 @@ MCP_CATALOG = [
             },
             "required": ["url"],
             "additionalProperties": False
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "status_code": {"type": "integer"},
+                "content": {"type": "string"}
+            },
+            "required": ["url", "status_code", "content"]
         }
     },
     {
         "name": "repair_json",
         "description": "Deterministically parses and repairs malformed, truncated, or unclosed JSON strings produced by LLMs (e.g. missing closing brackets, unescaped quotes, trailing commas). Returns parsed valid JSON object. Use when an LLM produces syntax-broken JSON. Do not use on valid non-JSON prose or for modifying data values.",
+        "annotations": {
+            "readOnlyHint": True,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -332,11 +387,23 @@ MCP_CATALOG = [
             },
             "required": ["raw_json"],
             "additionalProperties": False
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "repaired_json": {"type": "object"}
+            },
+            "required": ["status", "repaired_json"]
         }
     },
     {
         "name": "validate_schema",
         "description": "Deterministically validates that a target JSON payload contains all mandatory keys specified in a reference schema dictionary. Returns a boolean validation status and a list of missing keys. Use when verifying payload structure before downstream processing. Do not use for regex string validation or deep recursive type casting.",
+        "annotations": {
+            "readOnlyHint": True,
+            "audience": ["agent", "developer"]
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -351,6 +418,14 @@ MCP_CATALOG = [
             },
             "required": ["schema_definition", "data"],
             "additionalProperties": False
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "valid": {"type": "boolean"},
+                "missing_keys": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["valid", "missing_keys"]
         }
     }
 ]
