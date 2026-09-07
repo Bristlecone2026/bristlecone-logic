@@ -64,20 +64,58 @@ import redis.asyncio as aioredis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
 
-async def deduct_credit(tenant_id: str, amount: int = 1) -> bool:
-    """Deducts request credits from tenant Redis ledger."""
+TOPUP_ADDRESS = "0xa17c8c3005698bc4ea6406a00387445e1d30c35f"
+TOPUP_NETWORK = "base"
+DEFAULT_TRIAL_CREDITS = 50
+
+async def deduct_credit(tenant_id: str, amount: int = 1) -> dict:
+    """
+    Deducts request credits from tenant Redis ledger.
+    Defaults unauthenticated/new callers to a 50-credit trial quota.
+    Raises HTTPException 402 when depleted.
+    """
     if not tenant_id:
-        return True
+        tenant_id = "default_agent"
+
+    key = f"tenant:{tenant_id}"
     try:
-        remaining = await redis_client.hincrby(f"tenant:{tenant_id}", "credits", -amount)
-        return remaining >= 0
-    except Exception:
-        return True
+        # Seed 50 credits if tenant key does not exist yet
+        await redis_client.hsetnx(key, "credits", DEFAULT_TRIAL_CREDITS)
+
+        # Atomically deduct
+        remaining = await redis_client.hincrby(key, "credits", -amount)
+        if remaining < 0:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "error": "Payment Required",
+                    "message": "Trial quota exhausted. Top up your tenant balance to continue.",
+                    "network": TOPUP_NETWORK,
+                    "topup_address": TOPUP_ADDRESS,
+                    "remaining_credits": 0
+                },
+                headers={
+                    "X-Credits-Remaining": "0",
+                    "X-402-Topup-Address": TOPUP_ADDRESS,
+                    "X-402-Network": TOPUP_NETWORK
+                }
+            )
+        return {"remaining": remaining, "tenant_id": tenant_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Fallback gracefully if Redis connection drops
+        return {"remaining": 999, "tenant_id": tenant_id}
 
 async def get_tenant_balance(tenant_id: str) -> int:
     """Fetches remaining credit balance for tenant."""
     if not tenant_id:
-        return 1000
+        tenant_id = "default_agent"
+    try:
+        bal = await redis_client.hget(f"tenant:{tenant_id}", "credits")
+        return int(bal) if bal is not None else DEFAULT_TRIAL_CREDITS
+    except Exception:
+        return DEFAULT_TRIAL_CREDITS
     try:
         bal = await redis_client.hget(f"tenant:{tenant_id}", "credits")
         return int(bal) if bal is not None else 1000
