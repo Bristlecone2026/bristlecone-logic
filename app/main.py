@@ -548,7 +548,7 @@ async def mcp_handler(request: Request):
             schema_keys = args.get("schema_definition", {}).keys()
             data_keys = args.get("data", {}).keys()
             missing = [k for k in schema_keys if k not in data_keys]
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"valid": len(missing) == 0, "missing": missing})}]}}
+            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"valid": len(missing) == 0, "missing": missing})}]}}, headers=meta_headers)
 
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"}}
 
