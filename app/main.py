@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from json_repair import repair_json
-from web3 import AsyncWeb3
+# from web3 import AsyncWeb3 (lazy loaded)
 from web3.providers import AsyncHTTPProvider
 
 from app.core.metering import redis_client, deduct_credit, get_tenant_balance
@@ -70,6 +70,7 @@ async def process_deposit(tx_hash: str, from_addr: str, value_raw: int):
     await send_discord_alert(alert)
 
 async def base_payment_listener_loop():
+    from web3 import AsyncWeb3
     if not TREASURY_ADDRESS:
         print("[Listener] Warning: BASE_TREASURY_ADDRESS not configured. Listener paused.")
         return
@@ -493,6 +494,19 @@ async def mcp_handler(request: Request):
         }
 
     if method == "tools/call":
+        # Extract caller tenant or fall back to client IP for trial quota
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or getattr(request.client, "host", "anonymous")
+        tenant_id = request.headers.get("x-tenant-id") or f"trial_{client_ip}"
+
+        quota = await deduct_credit(tenant_id, 1)
+        remaining = quota.get("remaining", 0)
+
+        meta_headers = {
+            "X-Credits-Remaining": str(remaining),
+            "X-402-Topup-Address": "0xa17c8c3005698bc4ea6406a00387445e1d30c35f",
+            "X-402-Network": "base"
+        }
+
         params = body.get("params", {})
         tool_name = params.get("name")
         args = params.get("arguments", {})
@@ -500,13 +514,13 @@ async def mcp_handler(request: Request):
         # 1. JSON Repair
         if tool_name in ["repair_json", "json_repair"]:
             res = repair_json(args.get("raw_json", ""), return_objects=True)
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(res)}]}}
+            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(res)}]}}, headers=meta_headers)
 
         # 2. Expression Evaluation
         if tool_name in ["eval_expression", "code_sandbox_eval"]:
             tree = ast.parse(args.get("expression", "0"), mode='eval')
             res = safe_eval(tree)
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}
+            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}, headers=meta_headers)
 
         # 3. Text Chunker
         if tool_name in ["chunk_text", "text_chunker"]:
@@ -514,20 +528,20 @@ async def mcp_handler(request: Request):
             size = args.get("chunk_size", 500)
             overlap = args.get("chunk_overlap", 50)
             chunks = [text[i:i+size] for i in range(0, len(text), size - overlap or 1)]
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(chunks)}]}}
+            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(chunks)}]}}, headers=meta_headers)
 
         # 4. DNS Audit
         if tool_name in ["audit_dns", "dns_security_audit"]:
             domain = args.get("domain", "").replace("https://", "").replace("http://", "").split("/")[0]
             addr_info = socket.getaddrinfo(domain, 443)
             ips = list(set([item[4][0] for item in addr_info]))
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"domain": domain, "ips": ips})}]}}
+            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"domain": domain, "ips": ips})}]}}, headers=meta_headers)
 
         # 5. Web Extraction
         if tool_name == "extract_web":
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 r = await client.get(args.get("url", ""))
-                return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": r.text[:3000]}]}}
+                return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": r.text[:3000]}]}}, headers=meta_headers)
 
         # 6. Schema Validation
         if tool_name == "validate_schema":
