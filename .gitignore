@@ -15,3 +15,4 @@ venv/
 nginx/certs/
 *.bak
 dist/
+ARCHITECTURE.md
