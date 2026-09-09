@@ -43,7 +43,7 @@ async def settle_payment_channels(client: AsyncJsonRpcClient, wallet: Wallet):
             if not claim_data:
                 continue
 
-            authorized_drops = int(claim_data["amount_drops"])
+            authorized_drops = int(claim_data.get("amount_drops") or claim_data.get("drops", 0))
             settled_key = f"xrpl:channel:{channel_id}:settled_drops"
             last_settled_raw = await redis_client.get(settled_key)
             last_settled = int(last_settled_raw) if last_settled_raw else 0
@@ -59,7 +59,6 @@ async def settle_payment_channels(client: AsyncJsonRpcClient, wallet: Wallet):
                 account=wallet.classic_address,
                 channel=channel_id,
                 balance=str(authorized_drops),
-                amount=str(authorized_drops),
                 signature=claim_data["signature"],
                 public_key=claim_data["public_key"],
             )
