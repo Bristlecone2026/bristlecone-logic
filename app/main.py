@@ -1,4 +1,6 @@
+from app.layer4_ledgers.xrpl_tools import router as xrpl_tools_router
 from app.middleware.m2m_payment import M2MPaymentMiddleware
+from app.middleware.xrpl_claim import XRPLClaimMiddleware
 import os
 import ast
 import json
@@ -132,6 +134,7 @@ app = FastAPI(
 app.include_router(admin_router, prefix="/api/v1")
 
 app.add_middleware(M2MPaymentMiddleware)
+app.add_middleware(XRPLClaimMiddleware)
 
 # -----------------------------------------------------------------------------
 # Core Execution Logic
@@ -471,7 +474,25 @@ MCP_CATALOG = [
 async def mcp_handler(request: Request):
     if request.method == "GET":
         return JSONResponse({"status": "ready", "transport": "Streamable HTTP / JSON-RPC"})
-    body = await request.json()
+    
+    try:
+        raw_body = await request.body()
+        if not raw_body or not raw_body.strip():
+            return JSONResponse({"status": "ready", "transport": "Streamable HTTP / JSON-RPC", "mcp": "bristlecone-mcp-gateway"})
+        import json
+        body = json.loads(raw_body)
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error: empty or invalid JSON payload"}, "id": None}
+        )
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request: expected JSON object"}, "id": None}
+        )
+
     req_id = body.get("id", 1)
     method = body.get("method")
 
@@ -608,3 +629,10 @@ async def ai_catalog_manifest():
             }
         ]
     }
+
+app.include_router(xrpl_tools_router)
+
+
+from app.layer4_ledgers.xrpl_tools import get_tools_manifest
+app.add_api_route("/.well-known/x402-manifest.json", get_tools_manifest, methods=["GET"])
+

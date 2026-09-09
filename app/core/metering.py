@@ -1,3 +1,6 @@
+from contextvars import ContextVar
+
+bypass_metering_var: ContextVar[bool] = ContextVar('bypass_metering', default=False)
 import secrets
 import redis.asyncio as aioredis
 from fastapi import HTTPException, Security, status
@@ -69,6 +72,9 @@ TOPUP_NETWORK = "base"
 DEFAULT_TRIAL_CREDITS = 50
 
 async def deduct_credit(tenant_id: str, amount: int = 1) -> dict:
+    # Bypass tenant credit deduction if pre-paid via native rail (Xylem / confirmed tx)
+    if bypass_metering_var.get() or (tenant_id and tenant_id.startswith("xylem")):
+        return {"remaining": 999999, "tenant_id": tenant_id}
     """
     Deducts request credits from tenant Redis ledger.
     Defaults unauthenticated/new callers to a 50-credit trial quota.

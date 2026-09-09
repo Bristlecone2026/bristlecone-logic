@@ -26,6 +26,10 @@ class M2MPaymentMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/tools/"):
             return await call_next(request)
 
+        # Bypass Base L2 checks if already verified via Xylem (XRPL claim)
+        if getattr(request.state, "payment_verified", False):
+            return await call_next(request)
+
         # 1. Bearer API key authentication
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
