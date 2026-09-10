@@ -1,3 +1,7 @@
+from xrpl.asyncio.clients import AsyncJsonRpcClient
+from xrpl.wallet import Wallet
+from app.layer4_ledgers.settler import settle_payment_channels, sweep_to_vault
+
 import asyncio
 import os
 import logging
@@ -269,13 +273,36 @@ async def process_batch(redis_client, session: AsyncSession, entries):
     if ack_ids:
         await redis_client.xack(STREAM_KEY, GROUP_NAME, *ack_ids)
 
+
+
+XRPL_RPC_URL = os.getenv("XRPL_RPC_URL", "https://s1.ripple.com:51234")
+XRPL_TREASURY_SEED = os.getenv("XRPL_TREASURY_SEED")
+
+async def xrpl_settler_sweeper_loop():
+    if not XRPL_TREASURY_SEED:
+        logger.warning("[Settler/Sweeper] XRPL_TREASURY_SEED not configured. Daemon disabled.")
+        return
+
+    wallet = Wallet.from_seed(XRPL_TREASURY_SEED)
+    client = AsyncJsonRpcClient(XRPL_RPC_URL)
+    logger.info(f"[Settler/Sweeper] Daemon active for hot wallet: {wallet.classic_address}")
+
+    while True:
+        try:
+            await settle_payment_channels(client, wallet)
+            await sweep_to_vault(client, wallet)
+        except Exception as e:
+            logger.error(f"[Settler/Sweeper] Isolated cycle error: {e}")
+        await asyncio.sleep(60)
+
 async def main():
     redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-    logger.info("Starting Bristlecone background daemons (Usage, Base L2, XRPL WebSocket)...")
+    logger.info("Starting Bristlecone background daemons (Usage, Base L2, XRPL WebSocket, Settler/Sweeper)...")
     await asyncio.gather(
         usage_sync_loop(redis_client),
         deposit_listener_loop(redis_client),
-        start_xrpl_listener(redis_client, AsyncSessionLocal)
+        start_xrpl_listener(redis_client, AsyncSessionLocal),
+        xrpl_settler_sweeper_loop()
     )
 
 if __name__ == "__main__":
