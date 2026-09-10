@@ -471,8 +471,26 @@ MCP_CATALOG = [
 @app.post("/sse")
 @app.get("/sse")
 @app.post("/")
+@app.get("/")
 async def mcp_handler(request: Request):
     if request.method == "GET":
+        host = request.headers.get("host", "").lower()
+        if "xrp." in host:
+            return JSONResponse({
+                "service": "Bristlecone Logic - XRPL M2M Tool Gateway",
+                "status": "active",
+                "payment_protocol": "x402",
+                "network": "xrpl:mainnet",
+                "payee": "rNjtBUTFAj7iSRoeVqpJoedFra4SM929VD",
+                "catalog": "https://xrp.bristleconelogic.com/openapi.json",
+                "endpoints": {
+                    "/tools/repair-json": {"cost_drops": 1000},
+                    "/tools/xrpl/orderbook-depth": {"cost_drops": 2000},
+                    "/tools/xrpl/amm-arb-quote": {"cost_drops": 5000},
+                    "/tools/xrpl/ticket-pool": {"cost_drops": 1000}
+                },
+                "instructions": "Send requests with X-XRPL-* payment channel claim headers. Unauthenticated requests receive 402 challenge."
+            })
         return JSONResponse({"status": "ready", "transport": "Streamable HTTP / JSON-RPC"})
     
     try:

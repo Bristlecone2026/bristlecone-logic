@@ -9,7 +9,7 @@ from xrpl.models.currencies import XRP, IssuedCurrency
 
 router = APIRouter(prefix="/tools/xrpl", tags=["XRPL Tools"])
 
-XRPL_RPC_URL = os.getenv("XRPL_RPC_URL", "https://s1.ripple.com:51234")
+XRPL_RPC_URL = os.getenv("XRPL_JSON_RPC_URL") or os.getenv("XRPL_RPC_URL", "https://xrplcluster.com")
 
 
 class AssetSpec(BaseModel):
@@ -315,10 +315,16 @@ async def get_ticket_pool(payload: TicketPoolRequest) -> Dict[str, Any]:
     try:
         resp_info = await client.request(req_info)
         if not resp_info.is_successful():
-            raise HTTPException(status_code=404, detail=f"Account {payload.account} not found or inactive on XRPL.")
+            error_data = resp_info.result.get("error_message") or resp_info.result.get("error") or "Unknown error"
+            raise HTTPException(status_code=404, detail=f"Account {payload.account} lookup failed: {error_data}")
         resp_objects = await client.request(req_objects)
+        if not resp_objects.is_successful():
+            error_data = resp_objects.result.get("error_message") or resp_objects.result.get("error") or "Unknown error"
+            raise HTTPException(status_code=502, detail=f"Ticket query failed: {error_data}")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"XRPL RPC Error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"XRPL RPC Connection Error: {str(e)}")
 
     account_data = resp_info.result.get("account_data", {})
     current_sequence = account_data.get("Sequence", 0)
