@@ -156,6 +156,84 @@
                 </div>
             </section>
 
+            <!-- Machine Interface & Dual-Rail Settlement -->
+            <section id="protocols" class="max-w-6xl mx-auto px-6 py-16 border-t border-slate-900/80">
+                <div class="text-center max-w-2xl mx-auto mb-12">
+                    <div class="flex items-center justify-center gap-2 mb-3">
+                        <span class="px-2.5 py-1 rounded bg-cyan-950/80 text-cyan-400 text-xs font-mono font-semibold border border-cyan-500/30">MCP DISCOVERY</span>
+                        <span class="text-slate-600 font-mono text-xs">•</span>
+                        <span class="px-2.5 py-1 rounded bg-emerald-950/80 text-emerald-400 text-xs font-mono font-semibold border border-emerald-500/30">XRPL / X402 SETTLEMENT</span>
+                    </div>
+                    <h2 class="text-2xl sm:text-3xl font-bold text-white">Dual-Rail Autonomous Architecture</h2>
+                    <p class="text-slate-400 text-sm mt-3">Native Model Context Protocol catalog for runtime tool binding paired with sub-second XRPL ledger verification.</p>
+                </div>
+
+                <div class="grid lg:grid-cols-2 gap-8">
+                    <!-- Column 1: Live Machine Endpoints & Protocol Flow -->
+                    <div class="flex flex-col gap-6">
+                        <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-6 shadow-2xl backdrop-blur-sm">
+                            <h3 class="text-sm font-mono uppercase tracking-wider text-slate-200 mb-4 flex items-center gap-2">
+                                <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Live Machine Manifests
+                            </h3>
+                            <div class="space-y-3 font-mono text-xs">
+                                <div>
+                                    <div class="text-slate-500 mb-1">X402 Settlement Manifest (HTTP 402 / XRPL)</div>
+                                    <div class="p-2.5 rounded bg-slate-900 border border-slate-800 text-emerald-400 break-all select-all">
+                                        GET /.well-known/x402-manifest.json
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="text-slate-500 mb-1">MCP Tool Catalog (JSON-RPC)</div>
+                                    <div class="p-2.5 rounded bg-slate-900 border border-slate-800 text-cyan-400 break-all select-all">
+                                        GET /api/v1/mcp/manifest
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Settlement Flow Steps -->
+                        <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-6 shadow-2xl backdrop-blur-sm">
+                            <h3 class="text-sm font-mono uppercase tracking-wider text-slate-200 mb-4">Autonomous M2M Lifecycle</h3>
+                            <ol class="space-y-3 text-xs text-slate-400 list-decimal list-inside font-sans">
+                                <li><strong class="text-slate-200 font-mono">Discovery:</strong> Agent queries MCP catalog; pulls tool signatures & input validation schemas.</li>
+                                <li><strong class="text-slate-200 font-mono">Negotiation:</strong> Gateway issues <code class="text-amber-400 font-mono">402 Payment Required</code> specifying XRPL destination & micro-drop invoice.</li>
+                                <li><strong class="text-slate-200 font-mono">Execution:</strong> Ledger verifies settlement; AST sandbox executes payload and streams deterministic output.</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Agent Client SDK Integration -->
+                    <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-6 shadow-2xl backdrop-blur-sm flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-sm font-mono uppercase tracking-wider text-slate-200">Agent SDK Quickstart</h3>
+                                <span class="text-[10px] font-mono text-slate-500 uppercase">Python 3.10+</span>
+                            </div>
+                            <p class="text-xs text-slate-400 mb-4">Automate payment challenge negotiation and tool execution via the client wrapper.</p>
+                            <pre class="p-4 rounded-lg bg-black border border-slate-800 text-slate-300 font-mono text-xs overflow-x-auto leading-relaxed"><code><span class="text-slate-500"># Autonomous tool invocation via XRPL settlement rail</span>
+<span class="text-cyan-400">from</span> sdk.bristlecone_x402 <span class="text-cyan-400">import</span> BristleconeClient
+
+client = BristleconeClient(
+    endpoint=<span class="text-emerald-400">"https://api.bristleconelogic.com"</span>,
+    network=<span class="text-emerald-400">"xrpl"</span>
+)
+
+<span class="text-slate-500"># Handles 402 challenge, on-ledger drop transfer & execution</span>
+result = client.call(
+    tool=<span class="text-emerald-400">"audit_dns"</span>,
+    params={<span class="text-emerald-400">"domain"</span>: <span class="text-emerald-400">"example.com"</span>}
+)
+<span class="text-cyan-400">print</span>(result.output)</code></pre>
+                        </div>
+                        <div class="mt-6 pt-4 border-t border-slate-900 flex items-center justify-between text-xs font-mono text-slate-500">
+                            <span>Settlement: XRPL & Base L2 USDC</span>
+                            <span>Latency: Sub-second</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Architectural Primitives -->
             <section id="features" class="max-w-6xl mx-auto px-6 py-20 border-t border-slate-900/80">
                 <div class="text-center max-w-2xl mx-auto mb-14">
