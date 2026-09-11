@@ -273,15 +273,6 @@ MCP_CATALOG = [
             "required": ["domain"],
             "additionalProperties": False
         },
-        "outputSchema": {
-            "type": "object",
-            "properties": {
-                "domain": {"type": "string"},
-                "ip_addresses": {"type": "array", "items": {"type": "string"}},
-                "status": {"type": "string"}
-            },
-            "required": ["domain", "ip_addresses", "status"]
-        }
     },
     {
         "name": "chunk_text",
@@ -318,14 +309,6 @@ MCP_CATALOG = [
             "required": ["text"],
             "additionalProperties": False
         },
-        "outputSchema": {
-            "type": "object",
-            "properties": {
-                "total_chunks": {"type": "integer"},
-                "chunks": {"type": "array", "items": {"type": "string"}}
-            },
-            "required": ["total_chunks", "chunks"]
-        }
     },
     {
         "name": "eval_expression",
@@ -350,15 +333,6 @@ MCP_CATALOG = [
             "required": ["expression"],
             "additionalProperties": False
         },
-        "outputSchema": {
-            "type": "object",
-            "properties": {
-                "expression": {"type": "string"},
-                "result": {"type": ["number", "boolean", "null"]},
-                "success": {"type": "boolean"}
-            },
-            "required": ["expression", "result", "success"]
-        }
     },
     {
         "name": "extract_web",
@@ -384,15 +358,6 @@ MCP_CATALOG = [
             "required": ["url"],
             "additionalProperties": False
         },
-        "outputSchema": {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string"},
-                "status_code": {"type": "integer"},
-                "content": {"type": "string"}
-            },
-            "required": ["url", "status_code", "content"]
-        }
     },
     {
         "name": "repair_json",
@@ -417,14 +382,6 @@ MCP_CATALOG = [
             "required": ["raw_json"],
             "additionalProperties": False
         },
-        "outputSchema": {
-            "type": "object",
-            "properties": {
-                "status": {"type": "string"},
-                "repaired_json": {"type": "object"}
-            },
-            "required": ["status", "repaired_json"]
-        }
     },
     {
         "name": "validate_schema",
@@ -453,14 +410,6 @@ MCP_CATALOG = [
             "required": ["schema_definition", "data"],
             "additionalProperties": False
         },
-        "outputSchema": {
-            "type": "object",
-            "properties": {
-                "valid": {"type": "boolean"},
-                "missing_keys": {"type": "array", "items": {"type": "string"}}
-            },
-            "required": ["valid", "missing_keys"]
-        }
     }
 ]
 
