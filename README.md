@@ -54,6 +54,75 @@ For authenticated or metered tenant access:
 
 ---
 
+
+### LangChain & LangGraph
+
+Install `langchain-mcp-adapters` to connect directly over HTTP:
+
+```python
+import asyncio
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+async def run():
+    async with MultiServerMCPClient({
+        "bristlecone": {
+            "url": "https://bristleconelogic.com/mcp",
+            "transport": "http"
+        }
+    }) as client:
+        agent = create_react_agent(ChatOpenAI(model="gpt-4o"), client.get_tools())
+        res = await agent.ainvoke({"messages": [("user", "Validate payload and inspect for SSRF")]})
+        print(res["messages"][-1].content)
+
+if __name__ == "__main__":
+    asyncio.run(run())
+```
+
+### LlamaIndex
+
+Install `llama-index-tools-mcp` to load remote tools dynamically:
+
+```python
+import asyncio
+from llama_index.tools.mcp import aget_tools_from_mcp_url
+from llama_index.core.agent import ReActAgent
+from llama_index.llms.openai import OpenAI
+
+async def run():
+    tools = await aget_tools_from_mcp_url("https://bristleconelogic.com/mcp")
+    agent = ReActAgent.from_tools(tools, llm=OpenAI(model="gpt-4o"), verbose=True)
+    res = agent.chat("Check destination URL security: https://example.com")
+    print(res)
+
+if __name__ == "__main__":
+    asyncio.run(run())
+```
+
+### CrewAI
+
+Install `crewai-tools` and pass the MCP endpoint into your agents:
+
+```python
+from crewai import Agent, Task, Crew
+from crewai_tools import MCPServerTool
+
+bristlecone = MCPServerTool(url="https://bristleconelogic.com/mcp")
+
+auditor = Agent(
+    role="Runtime Guardrail Specialist",
+    goal="SSRF defense and deterministic AST JSON repair",
+    backstory="Deterministic validation layer protecting autonomous agents from unsafe execution.",
+    tools=[bristlecone]
+)
+
+task = Task(description="Verify internal CIDR restrictions.", agent=auditor, expected_output="Audit status")
+Crew(agents=[auditor], tasks=[task]).kickoff()
+```
+
+---
+
 ## Autonomous M2M Settlement
 
 * **Protocol**: x402 (HTTP 402 Payment Required)
