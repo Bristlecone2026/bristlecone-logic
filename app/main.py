@@ -545,6 +545,17 @@ async def mcp_handler(request: Request):
 # ==============================================================================
 # Agentic Resource Discovery (ARD) Manifest
 # ==============================================================================
+@app.api_route("/.well-known/glama.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
+async def glama_manifest():
+    return {
+        "$schema": "https://glama.ai/mcp/v1/schema.json",
+        "name": "bristlecone-logic",
+        "description": "Autonomous dual-rail agent gateway with deterministic AST JSON repair and SSRF guardrails.",
+        "homepage": "https://bristleconelogic.com",
+        "url": "https://bristleconelogic.com/mcp"
+    }
+
+
 @app.api_route("/.well-known/ai-resources.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
 @app.api_route("/.well-known/ai-catalog.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
 async def ai_catalog_manifest():
