@@ -80,3 +80,80 @@ async def verify_admin_key(
             detail={"error": "admin_access_required", "message": "Valid administrative credentials are required."}
         )
     return True
+
+import socket
+import ipaddress
+from urllib.parse import urlparse
+
+HARDENED_CIDRS = [
+    ipaddress.ip_network("0.0.0.0/8"),          # Localhost alias (RFC 1122)
+    ipaddress.ip_network("127.0.0.0/8"),        # Loopback (RFC 1122)
+    ipaddress.ip_network("10.0.0.0/8"),         # Private Network (RFC 1918)
+    ipaddress.ip_network("172.16.0.0/12"),      # Private Network (RFC 1918)
+    ipaddress.ip_network("192.168.0.0/16"),     # Private Network (RFC 1918)
+    ipaddress.ip_network("169.254.0.0/16"),     # Link-Local / AWS/Azure/GCP IMDS (RFC 3927)
+    ipaddress.ip_network("100.64.0.0/10"),      # Shared Space / Alibaba IMDS (RFC 6598)
+    ipaddress.ip_network("192.0.0.0/24"),       # IETF Protocol / Oracle Cloud IMDS (RFC 6890)
+    ipaddress.ip_network("198.18.0.0/15"),      # Interconnect Benchmarking (RFC 2544)
+    ipaddress.ip_network("240.0.0.0/4"),        # Reserved (RFC 1112)
+    ipaddress.ip_network("255.255.255.255/32"), # Broadcast
+    ipaddress.ip_network("::/128"),             # IPv6 Unspecified
+    ipaddress.ip_network("::1/128"),            # IPv6 Loopback
+    ipaddress.ip_network("fc00::/7"),           # IPv6 ULA
+    ipaddress.ip_network("fe80::/10"),          # IPv6 Link-Local
+]
+
+def validate_safe_url(url: str) -> str:
+    """
+    Validates URL scheme and resolves hostname against HARDENED_CIDRS,
+    unwrapping IPv4-mapped IPv6 targets to block SSRF and loopback evasions.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid target URL: missing hostname."
+        )
+
+    try:
+        addr_info = socket.getaddrinfo(hostname, None)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not resolve host: {hostname} ({str(e)})"
+        )
+
+    resolved_ips = list({item[4][0] for item in addr_info})
+    if not resolved_ips:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Target hostname did not resolve to any IP address."
+        )
+
+    for raw_ip in resolved_ips:
+        try:
+            ip_obj = ipaddress.ip_address(raw_ip)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: Invalid IP format ({raw_ip})."
+            )
+
+        if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
+            ip_obj = ip_obj.ipv4_mapped
+
+        for cidr in HARDENED_CIDRS:
+            if ip_obj in cidr:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Forbidden: Target address ({ip_obj}) is in restricted range ({cidr})."
+                )
+
+    return url

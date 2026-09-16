@@ -192,9 +192,20 @@ async def health_check():
 @app.post("/tools/extract-web")
 async def extract_web(payload: ExtractWebRequest, x_tenant_id: str = Header(default="default_agent")):
     await deduct_credit(x_tenant_id, 1)
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        resp = await client.get(payload.url)
-        return {"url": payload.url, "status_code": resp.status_code, "content_length": len(resp.text), "text": resp.text[:4000]}
+    current_url = str(payload.url)
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        for _ in range(4):
+            validate_safe_url(current_url)
+            resp = await client.get(current_url, headers={"User-Agent": "BristleconeLogic-Agent/1.0"})
+            if resp.is_redirect:
+                loc = resp.headers.get("Location")
+                if not loc:
+                    break
+                from urllib.parse import urljoin
+                current_url = urljoin(current_url, loc)
+                continue
+            return {"url": current_url, "status_code": resp.status_code, "content_length": len(resp.text), "text": resp.text[:4000]}
+        raise HTTPException(status_code=400, detail="Exceeded maximum allowed redirect hops (3).")
 
 @app.post("/tools/validate-schema")
 async def validate_schema(payload: ValidateSchemaRequest, x_tenant_id: str = Header(default="default_agent")):

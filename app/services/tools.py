@@ -1,6 +1,7 @@
 import socket
 import ipaddress
 from urllib.parse import urlparse, urljoin
+from app.core.security import validate_safe_url
 from typing import Dict, Any, Optional, List
 import httpx
 from bs4 import BeautifulSoup
@@ -20,45 +21,7 @@ ALLOWED_CONTENT_TYPES = (
     "application/json",
 )
 
-def validate_safe_url(url: str) -> str:
-    """
-    Validates URL scheme and resolves target hostname to ensure
-    it does not point to internal, private, loopback, or metadata IP ranges.
-    """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
-        )
-
-    hostname = parsed.hostname
-    if not hostname:
-        raise HTTPException(status_code=400, detail="Invalid target URL: missing hostname.")
-
-    try:
-        addr_info = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        raise HTTPException(status_code=400, detail=f"Could not resolve host: {hostname}")
-
-    for item in addr_info:
-        ip_str = item[4][0]
-        ip = ipaddress.ip_address(ip_str)
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-            or ip == ipaddress.ip_address("169.254.169.254")
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Forbidden: Target address ({ip_str}) resolves to a restricted internal network range."
-            )
-
-    return url
+# validate_safe_url imported from app.core.security
 
 class WebExtractRequest(BaseModel):
     url: str = Field(..., description="Target web page URL to scrape and sanitize.")
@@ -136,7 +99,7 @@ async def extract_web_content(req: WebExtractRequest) -> WebExtractResponse:
         else:
             raise HTTPException(status_code=400, detail="Exceeded maximum allowed redirect hops (3).")
 
-    soup = BeautifulSoup(html_content, "lxml")
+    soup = BeautifulSoup(html_content, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "svg"]):
         tag.decompose()
 

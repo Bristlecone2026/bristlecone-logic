@@ -9,7 +9,8 @@ import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
-from app.core.security import TenantContext, verify_api_key
+from app.core.security import TenantContext, verify_api_key, validate_safe_url
+from urllib.parse import urljoin
 
 logger = logging.getLogger("api.tools")
 router = APIRouter()
@@ -153,18 +154,38 @@ async def web_extract(
         cost=COST_WEB_EXTRACT
     )
 
+    current_url = str(payload.url)
+    html_content = ""
+    MAX_REDIRECT_HOPS = 3
+
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            resp = await client.get(
-                payload.url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; BristleconeBot/1.0; +https://bristleconelogic.com)"}
-            )
-            resp.raise_for_status()
-            html_content = resp.text
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            for _ in range(MAX_REDIRECT_HOPS + 1):
+                validate_safe_url(current_url)
+                resp = await client.get(
+                    current_url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; BristleconeBot/1.0; +https://bristleconelogic.com)"}
+                )
+                if resp.is_redirect:
+                    location = resp.headers.get("Location")
+                    if not location:
+                        break
+                    current_url = urljoin(current_url, location)
+                    continue
+                resp.raise_for_status()
+                html_content = resp.text
+                break
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Exceeded maximum allowed redirect hops (3)."
+                )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch content from {payload.url}: {str(e)}"
+            detail=f"Failed to fetch content from {current_url}: {str(e)}"
         )
 
     soup = BeautifulSoup(html_content, "html.parser")
