@@ -7,6 +7,9 @@ __all__ = [
     "repair_json_tool",
     "safe_eval_tool",
     "audit_dns_tool",
+    "AgentTrustGuard",
+    "AgentTrustSecurityException",
+    "AgentTrustDeliverableException",
 ]
 
 
@@ -16,5 +19,12 @@ def __getattr__(name: str):
         return locals()[name]
     if name in {"repair_json_tool", "safe_eval_tool", "audit_dns_tool"}:
         from .crewai import repair_json_tool, safe_eval_tool, audit_dns_tool
+        return locals()[name]
+    if name in {"AgentTrustGuard", "AgentTrustSecurityException", "AgentTrustDeliverableException"}:
+        from .agent_trust import (
+            AgentTrustGuard,
+            AgentTrustSecurityException,
+            AgentTrustDeliverableException,
+        )
         return locals()[name]
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
