@@ -16,3 +16,4 @@ nginx/certs/
 *.bak
 dist/
 ARCHITECTURE.md
+*.egg-info/
