@@ -5,6 +5,7 @@ import os
 import ast
 import json
 import socket
+import ipaddress
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
@@ -234,16 +235,68 @@ async def eval_expression_endpoint(payload: CodeEvalRequest, x_tenant_id: str = 
     except Exception as e:
         return {"expression": payload.expression, "result": None, "success": False, "error": str(e)}
 
+# -----------------------------------------------------------------------------
+# Hardened SSRF & DNS Pre-Flight Validation Engine
+# -----------------------------------------------------------------------------
+HARDENED_CIDRS = [
+    ipaddress.ip_network("0.0.0.0/8"),          # Localhost alias (RFC 1122)
+    ipaddress.ip_network("127.0.0.0/8"),        # Loopback (RFC 1122)
+    ipaddress.ip_network("10.0.0.0/8"),         # Private Network (RFC 1918)
+    ipaddress.ip_network("172.16.0.0/12"),      # Private Network (RFC 1918)
+    ipaddress.ip_network("192.168.0.0/16"),     # Private Network (RFC 1918)
+    ipaddress.ip_network("169.254.0.0/16"),     # Link-Local / AWS/Azure/GCP IMDS (RFC 3927)
+    ipaddress.ip_network("100.64.0.0/10"),      # Shared Space / Alibaba IMDS (RFC 6598)
+    ipaddress.ip_network("192.0.0.0/24"),       # IETF Protocol / Oracle Cloud IMDS (RFC 6890)
+    ipaddress.ip_network("198.18.0.0/15"),      # Interconnect Benchmarking (RFC 2544)
+    ipaddress.ip_network("240.0.0.0/4"),        # Reserved (RFC 1112)
+    ipaddress.ip_network("255.255.255.255/32"), # Broadcast
+    ipaddress.ip_network("::/128"),             # IPv6 Unspecified
+    ipaddress.ip_network("::1/128"),           # IPv6 Loopback
+    ipaddress.ip_network("fc00::/7"),           # IPv6 ULA
+    ipaddress.ip_network("fe80::/10"),          # IPv6 Link-Local
+]
+
+def verify_host_safety(raw_target: str) -> dict:
+    clean = raw_target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
+    if not clean:
+        return {"domain": raw_target, "is_safe": False, "reason": "EMPTY_TARGET", "ip_addresses": [], "status": "error"}
+    try:
+        addr_info = socket.getaddrinfo(clean, None)
+        resolved_ips = list({item[4][0] for item in addr_info})
+        for raw_ip in resolved_ips:
+            ip_obj = ipaddress.ip_address(raw_ip)
+            if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
+                ip_obj = ip_obj.ipv4_mapped
+            for cidr in HARDENED_CIDRS:
+                if ip_obj in cidr:
+                    return {
+                        "domain": clean,
+                        "is_safe": False,
+                        "reason": f"BLOCKED ({ip_obj} in {cidr})",
+                        "ip_addresses": resolved_ips,
+                        "status": "refused"
+                    }
+        return {
+            "domain": clean,
+            "is_safe": True,
+            "reason": "PERMITTED (Public)",
+            "ip_addresses": resolved_ips,
+            "status": "resolved"
+        }
+    except Exception as e:
+        return {
+            "domain": clean,
+            "is_safe": False,
+            "reason": f"BLOCKED ({e.__class__.__name__})",
+            "ip_addresses": [],
+            "status": "error",
+            "error": str(e)
+        }
+
 @app.post("/tools/audit-dns")
 async def audit_dns_endpoint(payload: DNSAuditRequest, x_tenant_id: str = Header(default="default_agent")):
     await deduct_credit(x_tenant_id, 1)
-    domain = payload.domain.replace("https://", "").replace("http://", "").split("/")[0].strip()
-    try:
-        addr_info = socket.getaddrinfo(domain, 443)
-        ips = list(set([item[4][0] for item in addr_info]))
-        return {"domain": domain, "ip_addresses": ips, "status": "resolved"}
-    except Exception as e:
-        return {"domain": domain, "ip_addresses": [], "status": "error", "error": str(e)}
+    return verify_host_safety(payload.domain)
 
 # -----------------------------------------------------------------------------
 # TDQS-Optimized MCP Tool Manifest
@@ -518,12 +571,11 @@ async def mcp_handler(request: Request):
             chunks = [text[i:i+size] for i in range(0, len(text), size - overlap or 1)]
             return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(chunks)}]}}, headers=meta_headers)
 
-        # 4. DNS Audit
+        # 4. DNS Audit (Hardened Pre-Flight)
         if tool_name in ["audit_dns", "dns_security_audit"]:
-            domain = args.get("domain", "").replace("https://", "").replace("http://", "").split("/")[0]
-            addr_info = socket.getaddrinfo(domain, 443)
-            ips = list(set([item[4][0] for item in addr_info]))
-            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps({"domain": domain, "ips": ips})}]}}, headers=meta_headers)
+            domain = args.get("domain", "")
+            res = verify_host_safety(domain)
+            return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(res)}]}}, headers=meta_headers)
 
         # 5. Web Extraction
         if tool_name == "extract_web":
