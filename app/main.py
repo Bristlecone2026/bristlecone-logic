@@ -19,6 +19,7 @@ from json_repair import repair_json
 from web3.providers import AsyncHTTPProvider
 
 from app.core.metering import redis_client, deduct_credit, get_tenant_balance
+from app.core.rpc_resilience import RpcCircuitBreaker
 from app.api.v1.admin import router as admin_router
 
 # -----------------------------------------------------------------------------
@@ -31,6 +32,12 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
 ARC_RPC_URL = os.getenv("ARC_RPC_URL", "https://rpc.mainnet.arc.io")
 ARC_TREASURY_ADDRESS = os.getenv("ARC_TREASURY_ADDRESS", TREASURY_ADDRESS).lower()
+
+BASE_RPC_POOL = [url.strip() for url in os.getenv("BASE_FALLBACK_RPCS", f"{BASE_RPC_URL},https://base.llamarpc.com,https://1rpc.io/base").split(",") if url.strip()]
+ARC_RPC_POOL = [url.strip() for url in os.getenv("ARC_FALLBACK_RPCS", f"{ARC_RPC_URL}").split(",") if url.strip()]
+
+MAX_BLOCK_RANGE_PER_CYCLE = 25
+
 
 TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 RATE_PER_CREDIT_USD = 0.002
@@ -78,68 +85,73 @@ async def process_deposit(tx_hash: str, from_addr: str, value_raw: int, network:
     await send_discord_alert(alert)
 
 async def base_payment_listener_loop():
-    from web3 import AsyncWeb3
     if not TREASURY_ADDRESS:
         print("[Listener] Warning: BASE_TREASURY_ADDRESS not configured. Listener paused.")
         return
 
-    w3 = AsyncWeb3(AsyncHTTPProvider(BASE_RPC_URL))
-    print(f"[Listener] Monitoring Base L2 USDC deposits targeting {TREASURY_ADDRESS}...")
+    breaker = RpcCircuitBreaker("Base-L2", BASE_RPC_POOL, failure_threshold=3)
+    print(f"[Base Listener] Circuit Breaker active. Monitoring Base L2 USDC on {breaker.active_url}...")
 
-    try:
-        last_block = await w3.eth.block_number
-    except Exception as e:
-        print(f"[Listener] Initial block query failed: {e}")
-        last_block = 0
-
+    last_block = 0
     while True:
         try:
-            current_block = await w3.eth.block_number
-            if current_block > last_block and last_block > 0:
-                treasury_padded = "0x" + TREASURY_ADDRESS.replace("0x", "").lower().rjust(64, "0")
-                
-                logs = await w3.eth.get_logs({
-                    "fromBlock": last_block + 1,
-                    "toBlock": current_block,
-                    "address": w3.to_checksum_address(USDC_ADDRESS),
-                    "topics": [TRANSFER_EVENT_TOPIC, None, treasury_padded]
-                })
+            current_block = await breaker.execute_with_resilience(
+                lambda w3: w3.eth.block_number, alert_fn=send_discord_alert
+            )
+            if last_block == 0:
+                last_block = current_block
 
+            if current_block > last_block:
+                # Cap range per cycle to prevent RPC throttling during catch-up
+                target_block = min(current_block, last_block + MAX_BLOCK_RANGE_PER_CYCLE)
+                treasury_padded = "0x" + TREASURY_ADDRESS.replace("0x", "").lower().rjust(64, "0")
+
+                async def fetch_logs(w3):
+                    return await w3.eth.get_logs({
+                        "fromBlock": last_block + 1,
+                        "toBlock": target_block,
+                        "address": w3.to_checksum_address(USDC_ADDRESS),
+                        "topics": [TRANSFER_EVENT_TOPIC, None, treasury_padded]
+                    })
+
+                logs = await breaker.execute_with_resilience(fetch_logs, alert_fn=send_discord_alert)
                 for log in logs:
                     tx_hash = log["transactionHash"].hex()
                     from_addr = "0x" + log["topics"][1].hex()[-40:]
                     value_raw = int(log["data"].hex(), 16)
                     await process_deposit(tx_hash, from_addr, value_raw, network="base")
 
-                last_block = current_block
+                last_block = target_block
 
             await asyncio.sleep(3.0)
         except Exception as e:
-            print(f"[Listener] Polling cycle exception: {e}")
-            await asyncio.sleep(6.0)
+            # Resilient breaker handles backoff and node rotation internally
+            await asyncio.sleep(2.0)
 
 async def arc_payment_listener_loop():
-    from web3 import AsyncWeb3
-
     if not ARC_TREASURY_ADDRESS:
         print("[Arc Listener] Warning: ARC_TREASURY_ADDRESS not configured. Listener paused.")
         return
 
-    w3_arc = AsyncWeb3(AsyncHTTPProvider(ARC_RPC_URL))
-    print(f"[Arc Listener] Monitoring Arc L1 native USDC deposits targeting {ARC_TREASURY_ADDRESS}...")
+    breaker = RpcCircuitBreaker("Arc-L1", ARC_RPC_POOL, failure_threshold=3)
+    print(f"[Arc Listener] Circuit Breaker active. Monitoring Arc L1 USDC on {breaker.active_url}...")
 
-    try:
-        last_block = await w3_arc.eth.block_number
-    except Exception as e:
-        print(f"[Arc Listener] Initial block query failed: {e}")
-        last_block = 0
-
+    last_block = 0
     while True:
         try:
-            current_block = await w3_arc.eth.block_number
-            if current_block > last_block and last_block > 0:
-                for block_num in range(last_block + 1, current_block + 1):
-                    block = await w3_arc.eth.get_block(block_num, full_transactions=True)
+            current_block = await breaker.execute_with_resilience(
+                lambda w3: w3.eth.block_number, alert_fn=send_discord_alert
+            )
+            if last_block == 0:
+                last_block = current_block
+
+            if current_block > last_block:
+                target_block = min(current_block, last_block + MAX_BLOCK_RANGE_PER_CYCLE)
+                for block_num in range(last_block + 1, target_block + 1):
+                    block = await breaker.execute_with_resilience(
+                        lambda w3, b=block_num: w3.eth.get_block(b, full_transactions=True),
+                        alert_fn=send_discord_alert
+                    )
                     for tx in block.get("transactions", []):
                         to_addr = tx.get("to")
                         if to_addr and to_addr.lower() == ARC_TREASURY_ADDRESS:
@@ -149,12 +161,12 @@ async def arc_payment_listener_loop():
                                 from_addr = tx.get("from", "")
                                 await process_deposit(tx_hash, from_addr, value_raw, network="arc")
 
-                last_block = current_block
+                last_block = target_block
 
             await asyncio.sleep(2.0)
         except Exception as e:
-            print(f"[Arc Listener] Polling cycle exception: {e}")
-            await asyncio.sleep(4.0)
+            # Resilient breaker handles backoff and node rotation internally
+            await asyncio.sleep(2.0)
 
 # -----------------------------------------------------------------------------
 # Lifespan
