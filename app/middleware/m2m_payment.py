@@ -1,3 +1,4 @@
+from app.core.metering import bypass_metering_var
 import os
 from decimal import Decimal
 from fastapi import Request
@@ -49,6 +50,7 @@ class M2MPaymentMiddleware(BaseHTTPMiddleware):
             tx_clean = tx_hash.strip().lower()
             is_confirmed = await redis_client.get(f"tx_confirmed:{tx_clean}")
             if is_confirmed:
+                bypass_metering_var.set(True)
                 return await call_next(request)
 
         # 3. Calculate atomic units for both settlement rails
