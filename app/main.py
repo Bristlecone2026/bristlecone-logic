@@ -185,7 +185,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Bristlecone Logic M2M Microservices",
-    version="1.0.0",
+    version="0.4.3",
     lifespan=lifespan
 )
 
@@ -594,7 +594,7 @@ async def mcp_handler(request: Request):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "bristlecone-mcp-gateway", "version": "1.0.0"}
+                "serverInfo": {"name": "bristlecone-mcp-gateway", "version": "0.4.3"}
             }
         }
 
