@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.metering import redis_client
 
-BASE_TREASURY_ADDRESS = os.getenv("BASE_TREASURY_ADDRESS", "0xa17c8c3005698bc4ea6406a00387445e1d30c35f").lower()
+BASE_TREASURY_ADDRESS = os.getenv("BASE_TREASURY_ADDRESS", "0x1B4309CFdbCEee7618a7fBDc5b145691F9246D67").lower()
 ARC_TREASURY_ADDRESS = os.getenv("ARC_TREASURY_ADDRESS", BASE_TREASURY_ADDRESS).lower()
 BASE_USDC_CONTRACT = os.getenv("BASE_USDC_CONTRACT_ADDRESS", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
 
