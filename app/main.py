@@ -9,13 +9,13 @@ import ipaddress
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from json_repair import repair_json
-# from web3 import AsyncWeb3 (lazy loaded)
 from web3.providers import AsyncHTTPProvider
 
 from app.core.metering import redis_client, deduct_credit, get_tenant_balance
@@ -29,11 +29,14 @@ USDC_ADDRESS = os.getenv("BASE_USDC_CONTRACT_ADDRESS", "0x833589fCD6eDb6E08f4c7C
 TREASURY_ADDRESS = os.getenv("BASE_TREASURY_ADDRESS", "").lower()
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
+ARC_RPC_URL = os.getenv("ARC_RPC_URL", "https://rpc.mainnet.arc.io")
+ARC_TREASURY_ADDRESS = os.getenv("ARC_TREASURY_ADDRESS", TREASURY_ADDRESS).lower()
+
 TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 RATE_PER_CREDIT_USD = 0.002
 
 # -----------------------------------------------------------------------------
-# Background Payment Listener
+# Background Payment Listeners
 # -----------------------------------------------------------------------------
 async def send_discord_alert(message: str):
     if not DISCORD_WEBHOOK_URL:
@@ -44,28 +47,30 @@ async def send_discord_alert(message: str):
     except Exception as e:
         print(f"[Sentinel] Discord delivery error: {e}")
 
-async def process_deposit(tx_hash: str, from_addr: str, value_raw: int):
-    # Idempotency check: prevent duplicate credit allocation
-    if await redis_client.get(f"tx_confirmed:{tx_hash.lower()}"):
+async def process_deposit(tx_hash: str, from_addr: str, value_raw: int, network: str = "base"):
+    tx_key = f"tx_confirmed:{tx_hash.lower()}"
+    if await redis_client.get(tx_key):
         print(f"[Listener] Skipped duplicate transaction: {tx_hash}")
         return
 
-    usdc_amount = value_raw / 1_000_000.0
+    # Decimal normalization: Arc native USDC = 18 decimals, Base ERC-20 USDC = 6 decimals
+    decimals = 18 if network.lower() == "arc" else 6
+    usdc_amount = value_raw / float(10 ** decimals)
     credits_to_add = int(usdc_amount / RATE_PER_CREDIT_USD)
 
     tenant_name = await redis_client.get(f"tenant_address:{from_addr.lower()}")
     if not tenant_name:
         tenant_name = "default_agent"
 
-    # Synchronize both tenant hash and direct balance keys
     new_balance = await redis_client.hincrby(f"tenant:{tenant_name}", "credits", credits_to_add)
     await redis_client.incrby(f"balance:{tenant_name}", credits_to_add)
-    await redis_client.set(f"tx_confirmed:{tx_hash.lower()}", "1", ex=604800)
-    
+    await redis_client.set(tx_key, "1", ex=604800)
+
+    network_label = "Arc L1" if network.lower() == "arc" else "Base L2"
     alert = (
-        f"💰 **Deposit Settled on Base L2!**\n"
+        f"💰 **Deposit Settled on {network_label}!**\n"
         f"• **Tx**: `{tx_hash}`\n"
-        f"• **Amount**: `${usdc_amount:.2f} USDC`\n"
+        f"• **Amount**: `${usdc_amount:.4f} USDC`\n"
         f"• **Credits Allocated**: `+{credits_to_add:,}`\n"
         f"• **Tenant**: `{tenant_name}` (Balance: `{new_balance:,}`)"
     )
@@ -104,7 +109,7 @@ async def base_payment_listener_loop():
                     tx_hash = log["transactionHash"].hex()
                     from_addr = "0x" + log["topics"][1].hex()[-40:]
                     value_raw = int(log["data"].hex(), 16)
-                    await process_deposit(tx_hash, from_addr, value_raw)
+                    await process_deposit(tx_hash, from_addr, value_raw, network="base")
 
                 last_block = current_block
 
@@ -113,16 +118,56 @@ async def base_payment_listener_loop():
             print(f"[Listener] Polling cycle exception: {e}")
             await asyncio.sleep(6.0)
 
+async def arc_payment_listener_loop():
+    from web3 import AsyncWeb3
+
+    if not ARC_TREASURY_ADDRESS:
+        print("[Arc Listener] Warning: ARC_TREASURY_ADDRESS not configured. Listener paused.")
+        return
+
+    w3_arc = AsyncWeb3(AsyncHTTPProvider(ARC_RPC_URL))
+    print(f"[Arc Listener] Monitoring Arc L1 native USDC deposits targeting {ARC_TREASURY_ADDRESS}...")
+
+    try:
+        last_block = await w3_arc.eth.block_number
+    except Exception as e:
+        print(f"[Arc Listener] Initial block query failed: {e}")
+        last_block = 0
+
+    while True:
+        try:
+            current_block = await w3_arc.eth.block_number
+            if current_block > last_block and last_block > 0:
+                for block_num in range(last_block + 1, current_block + 1):
+                    block = await w3_arc.eth.get_block(block_num, full_transactions=True)
+                    for tx in block.get("transactions", []):
+                        to_addr = tx.get("to")
+                        if to_addr and to_addr.lower() == ARC_TREASURY_ADDRESS:
+                            value_raw = tx.get("value", 0)
+                            if value_raw > 0:
+                                tx_hash = tx["hash"].hex()
+                                from_addr = tx.get("from", "")
+                                await process_deposit(tx_hash, from_addr, value_raw, network="arc")
+
+                last_block = current_block
+
+            await asyncio.sleep(2.0)
+        except Exception as e:
+            print(f"[Arc Listener] Polling cycle exception: {e}")
+            await asyncio.sleep(4.0)
+
 # -----------------------------------------------------------------------------
 # Lifespan
 # -----------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    listener_task = asyncio.create_task(base_payment_listener_loop())
+    base_task = asyncio.create_task(base_payment_listener_loop())
+    arc_task = asyncio.create_task(arc_payment_listener_loop())
     yield
-    listener_task.cancel()
+    base_task.cancel()
+    arc_task.cancel()
     try:
-        await listener_task
+        await asyncio.gather(base_task, arc_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
 
@@ -136,6 +181,69 @@ app.include_router(admin_router, prefix="/api/v1")
 
 app.add_middleware(M2MPaymentMiddleware)
 app.add_middleware(XRPLClaimMiddleware)
+
+# -----------------------------------------------------------------------------
+# Hardened SSRF & DNS Pre-Flight Validation Engine
+# -----------------------------------------------------------------------------
+HARDENED_CIDRS = [
+    ipaddress.ip_network("0.0.0.0/8"),          # Localhost alias (RFC 1122)
+    ipaddress.ip_network("127.0.0.0/8"),        # Loopback (RFC 1122)
+    ipaddress.ip_network("10.0.0.0/8"),         # Private Network (RFC 1918)
+    ipaddress.ip_network("172.16.0.0/12"),      # Private Network (RFC 1918)
+    ipaddress.ip_network("192.168.0.0/16"),     # Private Network (RFC 1918)
+    ipaddress.ip_network("169.254.0.0/16"),     # Link-Local / IMDS (RFC 3927)
+    ipaddress.ip_network("100.64.0.0/10"),      # Shared Space (RFC 6598)
+    ipaddress.ip_network("192.0.0.0/24"),       # IETF Protocol (RFC 6890)
+    ipaddress.ip_network("198.18.0.0/15"),      # Benchmarking (RFC 2544)
+    ipaddress.ip_network("240.0.0.0/4"),        # Reserved (RFC 1112)
+    ipaddress.ip_network("255.255.255.255/32"), # Broadcast
+    ipaddress.ip_network("::/128"),             # IPv6 Unspecified
+    ipaddress.ip_network("::1/128"),            # IPv6 Loopback
+    ipaddress.ip_network("fc00::/7"),           # IPv6 ULA
+    ipaddress.ip_network("fe80::/10"),          # IPv6 Link-Local
+]
+
+def verify_host_safety(raw_target: str) -> dict:
+    clean = raw_target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
+    if not clean:
+        return {"domain": raw_target, "is_safe": False, "reason": "EMPTY_TARGET", "ip_addresses": [], "status": "error"}
+    try:
+        addr_info = socket.getaddrinfo(clean, None)
+        resolved_ips = list({item[4][0] for item in addr_info})
+        for raw_ip in resolved_ips:
+            ip_obj = ipaddress.ip_address(raw_ip)
+            if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
+                ip_obj = ip_obj.ipv4_mapped
+            for cidr in HARDENED_CIDRS:
+                if ip_obj in cidr:
+                    return {
+                        "domain": clean,
+                        "is_safe": False,
+                        "reason": f"BLOCKED ({ip_obj} in {cidr})",
+                        "ip_addresses": resolved_ips,
+                        "status": "refused"
+                    }
+        return {
+            "domain": clean,
+            "is_safe": True,
+            "reason": "PERMITTED (Public)",
+            "ip_addresses": resolved_ips,
+            "status": "resolved"
+        }
+    except Exception as e:
+        return {
+            "domain": clean,
+            "is_safe": False,
+            "reason": f"BLOCKED ({e.__class__.__name__})",
+            "ip_addresses": [],
+            "status": "error",
+            "error": str(e)
+        }
+
+def validate_safe_url(url: str):
+    check = verify_host_safety(url)
+    if not check.get("is_safe"):
+        raise HTTPException(status_code=400, detail=f"SSRF Security Violation: {check.get('reason', 'BLOCKED')}")
 
 # -----------------------------------------------------------------------------
 # Core Execution Logic
@@ -201,7 +309,6 @@ async def extract_web(payload: ExtractWebRequest, x_tenant_id: str = Header(defa
                 loc = resp.headers.get("Location")
                 if not loc:
                     break
-                from urllib.parse import urljoin
                 current_url = urljoin(current_url, loc)
                 continue
             return {"url": current_url, "status_code": resp.status_code, "content_length": len(resp.text), "text": resp.text[:4000]}
@@ -245,64 +352,6 @@ async def eval_expression_endpoint(payload: CodeEvalRequest, x_tenant_id: str = 
         return {"expression": payload.expression, "result": res, "success": True}
     except Exception as e:
         return {"expression": payload.expression, "result": None, "success": False, "error": str(e)}
-
-# -----------------------------------------------------------------------------
-# Hardened SSRF & DNS Pre-Flight Validation Engine
-# -----------------------------------------------------------------------------
-HARDENED_CIDRS = [
-    ipaddress.ip_network("0.0.0.0/8"),          # Localhost alias (RFC 1122)
-    ipaddress.ip_network("127.0.0.0/8"),        # Loopback (RFC 1122)
-    ipaddress.ip_network("10.0.0.0/8"),         # Private Network (RFC 1918)
-    ipaddress.ip_network("172.16.0.0/12"),      # Private Network (RFC 1918)
-    ipaddress.ip_network("192.168.0.0/16"),     # Private Network (RFC 1918)
-    ipaddress.ip_network("169.254.0.0/16"),     # Link-Local / AWS/Azure/GCP IMDS (RFC 3927)
-    ipaddress.ip_network("100.64.0.0/10"),      # Shared Space / Alibaba IMDS (RFC 6598)
-    ipaddress.ip_network("192.0.0.0/24"),       # IETF Protocol / Oracle Cloud IMDS (RFC 6890)
-    ipaddress.ip_network("198.18.0.0/15"),      # Interconnect Benchmarking (RFC 2544)
-    ipaddress.ip_network("240.0.0.0/4"),        # Reserved (RFC 1112)
-    ipaddress.ip_network("255.255.255.255/32"), # Broadcast
-    ipaddress.ip_network("::/128"),             # IPv6 Unspecified
-    ipaddress.ip_network("::1/128"),           # IPv6 Loopback
-    ipaddress.ip_network("fc00::/7"),           # IPv6 ULA
-    ipaddress.ip_network("fe80::/10"),          # IPv6 Link-Local
-]
-
-def verify_host_safety(raw_target: str) -> dict:
-    clean = raw_target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
-    if not clean:
-        return {"domain": raw_target, "is_safe": False, "reason": "EMPTY_TARGET", "ip_addresses": [], "status": "error"}
-    try:
-        addr_info = socket.getaddrinfo(clean, None)
-        resolved_ips = list({item[4][0] for item in addr_info})
-        for raw_ip in resolved_ips:
-            ip_obj = ipaddress.ip_address(raw_ip)
-            if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
-                ip_obj = ip_obj.ipv4_mapped
-            for cidr in HARDENED_CIDRS:
-                if ip_obj in cidr:
-                    return {
-                        "domain": clean,
-                        "is_safe": False,
-                        "reason": f"BLOCKED ({ip_obj} in {cidr})",
-                        "ip_addresses": resolved_ips,
-                        "status": "refused"
-                    }
-        return {
-            "domain": clean,
-            "is_safe": True,
-            "reason": "PERMITTED (Public)",
-            "ip_addresses": resolved_ips,
-            "status": "resolved"
-        }
-    except Exception as e:
-        return {
-            "domain": clean,
-            "is_safe": False,
-            "reason": f"BLOCKED ({e.__class__.__name__})",
-            "ip_addresses": [],
-            "status": "error",
-            "error": str(e)
-        }
 
 @app.post("/tools/audit-dns")
 async def audit_dns_endpoint(payload: DNSAuditRequest, x_tenant_id: str = Header(default="default_agent")):
@@ -510,7 +559,6 @@ async def mcp_handler(request: Request):
         raw_body = await request.body()
         if not raw_body or not raw_body.strip():
             return JSONResponse({"status": "ready", "transport": "Streamable HTTP / JSON-RPC", "mcp": "bristlecone-mcp-gateway"})
-        import json
         body = json.loads(raw_body)
     except Exception:
         return JSONResponse(
@@ -546,7 +594,6 @@ async def mcp_handler(request: Request):
         }
 
     if method == "tools/call":
-        # Extract caller tenant or fall back to client IP for trial quota
         client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or getattr(request.client, "host", "anonymous")
         tenant_id = request.headers.get("x-tenant-id") or f"trial_{client_ip}"
 
@@ -563,18 +610,15 @@ async def mcp_handler(request: Request):
         tool_name = params.get("name")
         args = params.get("arguments", {})
 
-        # 1. JSON Repair
         if tool_name in ["repair_json", "json_repair"]:
             res = repair_json(args.get("raw_json", ""), return_objects=True)
             return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(res)}]}}, headers=meta_headers)
 
-        # 2. Expression Evaluation
         if tool_name in ["eval_expression", "code_sandbox_eval"]:
             tree = ast.parse(args.get("expression", "0"), mode='eval')
             res = safe_eval(tree)
             return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}, headers=meta_headers)
 
-        # 3. Text Chunker
         if tool_name in ["chunk_text", "text_chunker"]:
             text = args.get("text", "")
             size = args.get("chunk_size", 500)
@@ -582,19 +626,16 @@ async def mcp_handler(request: Request):
             chunks = [text[i:i+size] for i in range(0, len(text), size - overlap or 1)]
             return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(chunks)}]}}, headers=meta_headers)
 
-        # 4. DNS Audit (Hardened Pre-Flight)
         if tool_name in ["audit_dns", "dns_security_audit"]:
             domain = args.get("domain", "")
             res = verify_host_safety(domain)
             return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(res)}]}}, headers=meta_headers)
 
-        # 5. Web Extraction
         if tool_name == "extract_web":
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 r = await client.get(args.get("url", ""))
                 return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": r.text[:3000]}]}}, headers=meta_headers)
 
-        # 6. Schema Validation
         if tool_name == "validate_schema":
             schema_keys = args.get("schema_definition", {}).keys()
             data_keys = args.get("data", {}).keys()
@@ -617,7 +658,6 @@ async def glama_manifest():
         "homepage": "https://bristleconelogic.com",
         "url": "https://bristleconelogic.com/mcp"
     }
-
 
 @app.api_route("/.well-known/ai-resources.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
 @app.api_route("/.well-known/ai-catalog.json", methods=["GET", "HEAD"], tags=["Discovery"], include_in_schema=False)
@@ -673,7 +713,5 @@ async def ai_catalog_manifest():
 
 app.include_router(xrpl_tools_router)
 
-
 from app.layer4_ledgers.xrpl_tools import get_tools_manifest
 app.add_api_route("/.well-known/x402-manifest.json", get_tools_manifest, methods=["GET"])
-
