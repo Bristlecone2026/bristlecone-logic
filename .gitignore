@@ -17,3 +17,12 @@ nginx/certs/
 dist/
 ARCHITECTURE.md
 *.egg-info/
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+
+# Sensitive Architecture & Specs (Internal Only)
+ARCHITECTURE.md*
+*.mdRE.md
