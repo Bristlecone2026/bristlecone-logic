@@ -52,7 +52,7 @@ json_repair==0.63.4
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 limits==5.8.0
-Mako==1.4.1
+Mako==1.4.2
 markdown-it-py==4.2.0
 markdownify==1.2.3
 MarkupSafe==3.0.3
