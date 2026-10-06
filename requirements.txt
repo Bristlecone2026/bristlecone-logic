@@ -109,7 +109,7 @@ typer==0.27.1
 types-requests==2.33.0.20260712
 typing_extensions==4.16.0
 tzdata==2026.3
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.30.6
 uvloop==0.22.1
 watchdog==6.0.0
