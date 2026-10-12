@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog_version": "1.0.0",
+  "provider": {
+    "organization": "Bristlecone Logic, LLC",
+    "architecture_tier": "Radix",
+    "cluster": "Grove-Longaeva",
+    "orchestrator": "Erasmus",
+    "version": "0.4.3"
+  },
+  "endpoints": {
+    "mcp_server": "https://bristleconelogic.com/mcp",
+    "rest_tollbooth": "https://bristleconelogic.com/v1/tools/extract"
+  },
+  "settlement_rails": [
+    {
+      "rail": "arc",
+      "network_id": "5042002",
+      "currency": "USDC",
+      "base_units_price": "1000",
+      "contract_verifier": "ResinArcVerifier",
+      "auth_type": "stateless_402_digest"
+    },
+    {
+      "rail": "xrpl",
+      "network_id": "mainnet",
+      "currency": "XRP",
+      "base_units_price": "5000000",
+      "contract_verifier": "ResinXRPLVerifier",
+      "auth_type": "payment_channel_claim"
+    }
+  ],
+  "tools": [
+    {
+      "name": "bristlecone_hardened_scrape",
+      "description": "Deterministic pre-socket pinned web content extractor with SSRF elimination.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "max_bytes": { "type": "integer", "default": 1048576 }
+        },
+        "required": ["url"]
+      },
+      "security_profile": {
+        "guard": "Bark-SocketGuard",
+        "pinned_resolution": true,
+        "private_network_blocking": true
+      }
+    }
+  ]
+}
