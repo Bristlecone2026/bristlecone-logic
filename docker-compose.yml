@@ -8,7 +8,12 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - .:/app
+      - type: bind
+        source: /opt/bristlecone/bristlecone-logic
+        target: /app
+      - type: bind
+        source: /var/log/bristlecone
+        target: /var/log/bristlecone
     depends_on:
       db:
         condition: service_healthy

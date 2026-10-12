@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from fastapi import FastAPI, HTTPException, Header, Depends, Request
+from fastapi import FastAPI, HTTPException, Header, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from json_repair import repair_json
@@ -727,3 +727,78 @@ app.include_router(xrpl_tools_router)
 
 from app.layer4_ledgers.xrpl_tools import get_tools_manifest
 app.add_api_route("/.well-known/x402-manifest.json", get_tools_manifest, methods=["GET"])
+
+# -----------------------------------------------------------------------------
+# Resin Tollbooth Gateway & Radix Egress Route (Dendro Architecture)
+# -----------------------------------------------------------------------------
+import time
+from src.gateway.tollbooth import TollboothGateway
+from src.security.socket_guard import SocketGuard
+
+resin_tollbooth = TollboothGateway(
+    payee_address="0x1234567890abcdef1234567890abcdef12345678",
+    price_base_units="1000",
+    asset_id="USDC",
+    network_id="5042002",
+    rail="arc",
+)
+
+DURAMEN_LOG_PATH = "/var/log/bristlecone/duramen_audit.jsonl"
+
+
+class HardenedScrapeRequest(BaseModel):
+    url: str
+    max_bytes: int = 1048576
+
+
+@app.middleware("http")
+async def resin_tollbooth_middleware(request: Request, call_next):
+    if request.url.path.startswith("/v1/tools/extract") or request.url.path == "/mcp":
+        headers = dict(request.headers)
+        t_start = time.time()
+
+        authorized, status_code, payload = resin_tollbooth.evaluate_request(headers)
+        duration_ms = round((time.time() - t_start) * 1000, 3)
+
+        agent_id = headers.get("x-bristlecone-agent", "unidentified-caller")
+        log_entry = {
+            "timestamp": time.time(),
+            "agent_id": agent_id,
+            "path": request.url.path,
+            "status_code": status_code,
+            "duration_ms": duration_ms,
+            "nonce": headers.get("payment-challenge-id"),
+        }
+
+        try:
+            with open(DURAMEN_LOG_PATH, "a") as f:
+                f.write(json.dumps(log_entry) + "\n")
+        except Exception as e:
+            pass
+
+        if not authorized:
+            if status_code == 402:
+                return Response(
+                    content=json.dumps({"error": "Payment Required", "challenge": payload}),
+                    status_code=402,
+                    media_type="application/json",
+                    headers={"Payment-Required": payload["Payment-Required"]},
+                )
+            return JSONResponse(status_code=status_code, content=payload)
+
+    return await call_next(request)
+
+
+@app.post("/v1/tools/extract")
+async def tollbooth_extract(payload: HardenedScrapeRequest):
+    try:
+        guard = SocketGuard(payload.url)
+        content = guard.safe_fetch()
+        return {
+            "status": "success",
+            "url": payload.url,
+            "content_bytes": len(content),
+            "payload": content[:4000],
+        }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
