@@ -3,11 +3,14 @@ Bristlecone Logic - Server-Side Tollbooth Gateway
 Intercepts incoming agent egress requests, issues HTTP 402 challenges,
 validates cryptographic settlement proofs, and enforces anti-replay policies.
 """
+import inspect
 import json
 import logging
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from src.gateway.nonce_store import NonceStore
+from src.settlement.arc_verifier import ArcSettlementVerifier
+from src.settlement.xrpl_verifier import XRPLSettlementVerifier
 
 logger = logging.getLogger("bristlecone.tollbooth")
 
@@ -16,7 +19,7 @@ class TollboothGateway:
     """
     Server-side settlement gatekeeper.
     Evaluates requests against pricing policies, generates single-use 402 challenges,
-    and validates payment signatures across Arc and XRPL rails.
+    and validates payment signatures across Arc L1 and XRPL rails.
     """
 
     def __init__(
@@ -27,8 +30,8 @@ class TollboothGateway:
         network_id: str = "5042002",
         rail: str = "arc",
         nonce_store: Optional[NonceStore] = None,
-        arc_verifier: Optional[Callable[[str, str, str], bool]] = None,
-        xrpl_verifier: Optional[Callable[[str, str, str], bool]] = None,
+        arc_verifier: Optional[Callable[..., bool]] = None,
+        xrpl_verifier: Optional[Callable[..., bool]] = None,
     ):
         self.payee_address = payee_address
         self.price_base_units = price_base_units
@@ -36,8 +39,10 @@ class TollboothGateway:
         self.network_id = network_id
         self.rail = rail.lower()
         self.nonce_store = nonce_store or NonceStore()
-        self.arc_verifier = arc_verifier
-        self.xrpl_verifier = xrpl_verifier
+
+        # Default to native verification engines if custom callables not supplied
+        self.arc_verifier = arc_verifier or ArcSettlementVerifier().verify_payment_proof
+        self.xrpl_verifier = xrpl_verifier or XRPLSettlementVerifier().verify_channel_claim
 
     def issue_challenge(self) -> Dict[str, Any]:
         """
@@ -53,6 +58,14 @@ class TollboothGateway:
             "nonce": nonce,
         }
 
+    def _call_verifier(self, verifier: Callable[..., bool], *args: Any) -> bool:
+        """
+        Invokes verifier matching positional parameter length.
+        """
+        sig = inspect.signature(verifier)
+        accepted_count = len(sig.parameters)
+        return bool(verifier(*args[:accepted_count]))
+
     def evaluate_request(
         self, headers: Dict[str, str]
     ) -> Tuple[bool, int, Dict[str, Any]]:
@@ -60,7 +73,6 @@ class TollboothGateway:
         Evaluates whether an incoming agent request provides valid payment proof.
         Returns: (is_authorized, status_code, payload_or_headers)
         """
-        # Case-insensitive header extraction
         norm_headers = {k.lower(): v for k, v in headers.items()}
         signature = norm_headers.get("payment-signature")
         nonce = norm_headers.get("payment-challenge-id")
@@ -80,13 +92,23 @@ class TollboothGateway:
 
         # 3. Cryptographic Verification by Rail
         is_valid = False
-        if self.rail == "arc" and self.arc_verifier:
-            is_valid = self.arc_verifier(signature, nonce, self.payee_address)
-        elif self.rail == "xrpl" and self.xrpl_verifier:
-            is_valid = self.xrpl_verifier(signature, nonce, self.payee_address)
-        elif not self.arc_verifier and not self.xrpl_verifier:
-            # Fallback for mock environments / pass-through test signers
-            is_valid = signature.startswith("0x") or signature.startswith("xrpl_")
+        if self.rail == "arc":
+            is_valid = self._call_verifier(
+                self.arc_verifier,
+                signature,
+                nonce,
+                self.payee_address,
+                self.price_base_units,
+                self.network_id,
+            )
+        elif self.rail == "xrpl":
+            is_valid = self._call_verifier(
+                self.xrpl_verifier,
+                signature,
+                nonce,
+                self.payee_address,
+                self.price_base_units,
+            )
 
         if not is_valid:
             logger.warning(f"Rejected request: Cryptographic verification failed for rail {self.rail}")
