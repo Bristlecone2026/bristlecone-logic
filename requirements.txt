@@ -120,3 +120,4 @@ wrapt==2.3.0
 yarl==1.24.5
 zlib-ng==1.0.0
 xrpl-py>=3.0.0
+bristlecone-guard==0.5.1

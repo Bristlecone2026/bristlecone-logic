@@ -1,3 +1,6 @@
+import urllib.parse
+import httpx
+from typing import Optional
 """
 Bristlecone Logic - Runtime Security Engine
 Deterministic Pre-Socket Guard & Egress Pinning Module
@@ -68,3 +71,28 @@ class SocketGuard:
             raise ConnectionError(f"Failed to connect to pinned IP {pinned_ip}:{port} - {str(e)}")
 
         return sock, pinned_ip
+
+    def __init__(self, url: Optional[str] = None, timeout: float = 10.0):
+        self.url = str(url) if url else None
+        self.timeout = timeout
+
+    def safe_fetch(self, url: Optional[str] = None) -> str:
+        target = str(url or self.url)
+        if not target:
+            raise ValueError("No URL provided to safe_fetch")
+        with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+            curr = target
+            for _ in range(4):
+                p = urllib.parse.urlparse(curr)
+                if p.scheme not in ("http", "https") or not p.hostname:
+                    raise SecurityException(f"Invalid URL or scheme: {curr}")
+                self.inspect_and_resolve(p.hostname)
+                resp = client.get(curr, headers={"User-Agent": "BristleconeGuard/0.5.1"})
+                if resp.is_redirect:
+                    loc = resp.headers.get("Location")
+                    if not loc:
+                        break
+                    curr = urllib.parse.urljoin(curr, loc)
+                    continue
+                return resp.text
+            raise SecurityException("Exceeded maximum redirect hops (3)")

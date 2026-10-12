@@ -4,13 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bristlecone-guard"
-version = "0.1.0"
-description = "Deterministic runtime guardrails and stdio proxy for Bristlecone Logic MCP"
+version = "0.5.1"
+authors = [
+  { name="Bristlecone Logic", email="dev@bristleconelogic.com" },
+]
+description = "Deterministic pre-socket DNS pinning and SSRF defense for autonomous AI agent egress."
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "Bristlecone Logic", email = "ops@bristleconelogic.com" }]
-dependencies = []
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+]
+dependencies = [
+    "httpx>=0.24.0",
+]
 
-[project.scripts]
-bristlecone-guard = "bristlecone_guard.cli:main"
+[project.urls]
+"Homepage" = "https://bristleconelogic.com"
+"Repository" = "https://github.com/Bristlecone2026/bristlecone-logic"
