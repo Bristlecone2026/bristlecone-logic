@@ -1,0 +1,59 @@
+{
+  "name": "bristlecone-guard-validate",
+  "version": "0.1.0",
+  "title": "Deterministic Pre-Socket Guard & AST Validator",
+  "description": "Pre-flight security tollbooth for autonomous AI agents. Inspects payloads, validates AST schemas, and enforces pre-socket connection-pinning to defeat TOCTOU DNS rebinding and internal SSRF before tool execution or wallet transactions.",
+  "provider": {
+    "name": "Bristlecone Logic, LLC",
+    "url": "https://bristleconelogic.com",
+    "contact": "support@bristleconelogic.com"
+  },
+  "endpoints": {
+    "validate": {
+      "path": "/v1/guard/validate",
+      "method": "POST",
+      "pricing": {
+        "model": "pay-per-request",
+        "price": "0.005",
+        "currency": "USDC",
+        "network": "arc-l1",
+        "chain_id": 5042002
+      },
+      "x402_settlement": {
+        "version": "2.0",
+        "scheme": "exact",
+        "facilitator": "circle-gateway",
+        "pay_to": "0x4020000000000000000000000000000000004020",
+        "headers": {
+          "required": "PAYMENT-REQUIRED",
+          "signature": "PAYMENT-SIGNATURE",
+          "response": "PAYMENT-RESPONSE"
+        }
+      },
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["target_host", "payload"],
+          "properties": {
+            "target_host": { "type": "string", "format": "hostname" },
+            "payload": { "type": "object" },
+            "expected_schema": { "type": "object" }
+          }
+        }
+      },
+      "response_body": {
+        "content_type": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["PASSED", "REJECTED", "SANITIZED"] },
+            "pinned_ip": { "type": "string" },
+            "risk_score": { "type": "number" },
+            "attestation_digest": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
