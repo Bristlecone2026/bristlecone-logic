@@ -753,7 +753,7 @@ class HardenedScrapeRequest(BaseModel):
 
 @app.middleware("http")
 async def resin_tollbooth_middleware(request: Request, call_next):
-    if request.url.path.startswith("/v1/tools/extract") or request.url.path == "/mcp":
+    if request.url.path.startswith("/v1/tools/extract"):
         headers = dict(request.headers)
         t_start = time.time()
 
