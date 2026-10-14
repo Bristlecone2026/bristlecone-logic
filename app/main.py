@@ -189,7 +189,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from app.routers.sandbox import router as sandbox_router
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(sandbox_router)
 
 app.add_middleware(M2MPaymentMiddleware)
 app.add_middleware(XRPLClaimMiddleware)
