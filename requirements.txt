@@ -34,7 +34,7 @@ CacheControl==0.14.4
 cachetools==7.1.8
 caio==0.12.4
 cbor2==6.1.4
-certifi==2026.7.22
+certifi==2026.10.19
 cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.5.0
