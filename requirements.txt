@@ -65,7 +65,7 @@ executing==2.2.1
 fastapi==0.141.1
 fastmcp-slim==4.1.0
 fastuuid==0.14.0
-filelock==3.32.5
+filelock==4.1.0
 frozenlist==1.8.0
 fsspec==2026.7.0
 genai-prices==0.1.13
