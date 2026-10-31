@@ -254,7 +254,7 @@ SecretStorage==3.5.0
 selenium==4.48.0
 semantic-version==2.10.0
 sentencepiece==0.2.2
-setuptools==84.0.0
+setuptools==84.1.0
 shellingham==1.5.4
 six==1.17.0
 -e git+https://github.com/Bristlecone2026/smolagents.git@1fae50e830f171b5007cfae52df3253f0fb53d5f#egg=smolagents
