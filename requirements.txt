@@ -109,7 +109,7 @@ Jinja2==3.1.6
 jiter==0.16.0
 jmespath==1.1.0
 joblib==1.6.0
-joserfc==1.7.5
+joserfc==1.7.6
 json_repair==0.63.4
 jsonpatch==1.33
 jsonpath-ng==1.8.0
