@@ -74,7 +74,7 @@ google-genai==2.31.0
 googleapis-common-protos==1.75.3
 gradio==6.26.0
 gradio_client==2.6.1
-graphql-core==3.3.0
+graphql-core==3.3.1
 greenlet==3.5.5
 griffelib==2.3.0
 groovy==0.1.2
